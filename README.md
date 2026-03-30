@@ -1,14 +1,14 @@
 # foxguard
 
-Blazing fast security linter for modern codebases. Written in Rust.
+Security linter built for AI-generated code. Written in Rust.
 
-> The Ruff of security.
+> Your AI writes code. foxguard catches what it gets wrong.
 
-## Why
+## The Problem
 
-- **41% of code is now AI-generated.** 24.7% of it has security flaws.
-- Every security linter today is Python, OCaml, or Java. Slow.
-- Foxguard is Rust-native. 100x faster than Semgrep. Zero config.
+80% of AI-generated code that passes functional tests still has security bugs ([SusVibes, 2025](https://arxiv.org/abs/2512.03559)). Existing SAST tools were built for human-written code -- they miss the patterns AI gets wrong: scaffold boilerplate with hardcoded secrets, over-permissive defaults, missing auth middleware, BaaS misconfigurations.
+
+foxguard is purpose-built for the vibe coding era.
 
 ## Install
 
@@ -26,14 +26,81 @@ npx foxguard
 foxguard .
 ```
 
-## Features
+```
+src/app.js
+  12:5  CRITICAL  js/express-no-hardcoded-session-secret (CWE-798)
+        Hardcoded session secret -- use environment variables
+  45:3  HIGH      js/express-direct-response-write (CWE-79)
+        res.send() called with user input -- risk of reflected XSS
 
-- Written in Rust -- scans 100K LOC in <2 seconds
-- Multi-language -- JS/TS, Python, Go (more coming)
-- 500+ security rules -- injection, auth, crypto, secrets, SSRF, XSS
-- AI-code-aware -- catches patterns specific to AI-generated code
-- SARIF output -- integrates with GitHub Code Scanning
-- Zero config -- works out of the box
+WARNING 2 issues found: 1 critical, 1 high, 0 medium, 0 low
+```
+
+## What It Catches
+
+36 security rules across 3 languages, focused on what AI gets wrong:
+
+**AI scaffold patterns**
+- Hardcoded secrets and placeholder credentials (CWE-798)
+- Debug mode left enabled (CWE-489)
+- Missing cookie security flags (CWE-614, CWE-1004)
+- CORS allow-all origins (CWE-942)
+
+**Injection**
+- SQL injection via string concatenation (CWE-89)
+- Command injection via exec/spawn (CWE-78)
+- XSS via innerHTML, document.write, res.send (CWE-79)
+- Path traversal (CWE-22)
+
+**Framework-specific (Express, Flask, Django, Gin)**
+- Express hardcoded session secrets
+- Express direct response write with user input
+- Flask debug mode enabled
+- Django SECRET_KEY hardcoded
+- Gin missing trusted proxies
+- net/http missing timeouts
+
+**Crypto and data safety**
+- Weak crypto (MD5, SHA1) (CWE-327)
+- Unsafe deserialization: pickle, yaml.load (CWE-502)
+- Prototype pollution (CWE-1321)
+- SSRF via dynamic URLs (CWE-918)
+
+## Languages
+
+| Language | Rules | Frameworks |
+|----------|-------|------------|
+| JavaScript/TypeScript | 16 | Express |
+| Python | 13 | Flask, Django |
+| Go | 7 | Gin, net/http |
+
+## Output Formats
+
+```sh
+foxguard .                    # Colored terminal output
+foxguard --format json .      # JSON
+foxguard --format sarif .     # SARIF (GitHub Code Scanning)
+foxguard --severity high .    # Filter by severity
+```
+
+## GitHub Action
+
+```yaml
+- uses: peaktwilight/foxguard-action@v1
+  with:
+    path: .
+    severity: medium
+```
+
+## Performance
+
+| Repository | Files | foxguard | Semgrep |
+|------------|-------|----------|---------|
+| express | 141 | 0.06s | 23.5s |
+| flask | 83 | 0.06s | 5.3s |
+| gin | 99 | 0.06s | 4.7s |
+
+Rust + tree-sitter + rayon. No JVM, no Python runtime, no network calls.
 
 ## License
 
