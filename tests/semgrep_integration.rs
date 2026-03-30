@@ -18,8 +18,7 @@ fn test_load_rules_from_directory() {
 
 #[test]
 fn test_hardcoded_secret_rule() {
-    let rules =
-        parse_semgrep_file(Path::new("tests/semgrep_rules/hardcoded-secret.yaml")).unwrap();
+    let rules = parse_semgrep_file(Path::new("tests/semgrep_rules/hardcoded-secret.yaml")).unwrap();
     assert_eq!(rules.len(), 1);
 
     let source = std::fs::read_to_string(FIXTURE).unwrap();
@@ -52,8 +51,7 @@ fn test_eval_usage_rule() {
 
 #[test]
 fn test_sql_injection_rule() {
-    let rules =
-        parse_semgrep_file(Path::new("tests/semgrep_rules/sql-injection.yaml")).unwrap();
+    let rules = parse_semgrep_file(Path::new("tests/semgrep_rules/sql-injection.yaml")).unwrap();
     assert_eq!(rules.len(), 1);
 
     let source = std::fs::read_to_string(FIXTURE).unwrap();
@@ -68,8 +66,7 @@ fn test_sql_injection_rule() {
 
 #[test]
 fn test_no_false_positives_on_safe_code() {
-    let rules =
-        parse_semgrep_file(Path::new("tests/semgrep_rules/hardcoded-secret.yaml")).unwrap();
+    let rules = parse_semgrep_file(Path::new("tests/semgrep_rules/hardcoded-secret.yaml")).unwrap();
 
     let source = "username = get_from_env('PASSWORD')\nx = 42\n";
     let tree = parse_file(source, Language::Python).unwrap();
@@ -84,8 +81,7 @@ fn test_no_false_positives_on_safe_code() {
 
 #[test]
 fn test_semgrep_rule_metadata() {
-    let rules =
-        parse_semgrep_file(Path::new("tests/semgrep_rules/hardcoded-secret.yaml")).unwrap();
+    let rules = parse_semgrep_file(Path::new("tests/semgrep_rules/hardcoded-secret.yaml")).unwrap();
     let rule = &rules[0];
 
     assert_eq!(rule.id(), "semgrep/hardcoded-secret");

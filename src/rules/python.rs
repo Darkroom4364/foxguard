@@ -119,10 +119,9 @@ impl Rule for NoHardcodedSecret {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let secret_pattern = Regex::new(
-            r"(?i)(password|secret|api_?key|token|auth|credential|private_?key)"
-        )
-        .unwrap();
+        let secret_pattern =
+            Regex::new(r"(?i)(password|secret|api_?key|token|auth|credential|private_?key)")
+                .unwrap();
 
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // assignment: password = "hardcoded"
@@ -183,16 +182,18 @@ impl Rule for NoSqlInjection {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let sql_pattern = Regex::new(
-            r"(?i)(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|EXEC)\s"
-        )
-        .unwrap();
+        let sql_pattern =
+            Regex::new(r"(?i)(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|EXEC)\s").unwrap();
 
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // Detect f-strings with SQL: f"SELECT * FROM users WHERE id = {user_id}"
             if node.kind() == "string" {
                 let text = &src[node.byte_range()];
-                if (text.starts_with("f\"") || text.starts_with("f'") || text.starts_with("f\"\"\"")) && sql_pattern.is_match(text) {
+                if (text.starts_with("f\"")
+                    || text.starts_with("f'")
+                    || text.starts_with("f\"\"\""))
+                    && sql_pattern.is_match(text)
+                {
                     findings.push(make_finding(
                         self.id(),
                         self.severity(),
@@ -305,8 +306,13 @@ impl Rule for NoCommandInjection {
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
         let dangerous_fns = [
-            "os.system", "os.popen", "subprocess.call", "subprocess.run",
-            "subprocess.Popen", "subprocess.check_output", "subprocess.check_call",
+            "os.system",
+            "os.popen",
+            "subprocess.call",
+            "subprocess.run",
+            "subprocess.Popen",
+            "subprocess.check_output",
+            "subprocess.check_call",
         ];
 
         walk_tree(tree.root_node(), source, &mut |node, src| {
@@ -322,7 +328,9 @@ impl Rule for NoCommandInjection {
                                         let text = &src[first_arg.byte_range()];
                                         text.starts_with("f\"") || text.starts_with("f'")
                                     }
-                                    "concatenated_string" | "binary_operator" | "identifier"
+                                    "concatenated_string"
+                                    | "binary_operator"
+                                    | "identifier"
                                     | "call" => true,
                                     _ => false,
                                 };
@@ -382,7 +390,9 @@ impl Rule for NoPathTraversal {
                             if let Some(first_arg) = args.named_child(0) {
                                 // Flag if path uses concatenation or f-string
                                 let is_dynamic = match first_arg.kind() {
-                                    "binary_operator" | "concatenated_string" | "identifier" => true,
+                                    "binary_operator" | "concatenated_string" | "identifier" => {
+                                        true
+                                    }
                                     "string" => {
                                         let text = &src[first_arg.byte_range()];
                                         text.starts_with("f\"") || text.starts_with("f'")
@@ -438,7 +448,11 @@ impl Rule for NoWeakCrypto {
                 if let Some(func) = node.child_by_field_name("function") {
                     let func_text = &src[func.byte_range()];
                     if func_text == "hashlib.md5" || func_text == "hashlib.sha1" {
-                        let algo = if func_text.contains("md5") { "MD5" } else { "SHA1" };
+                        let algo = if func_text.contains("md5") {
+                            "MD5"
+                        } else {
+                            "SHA1"
+                        };
                         findings.push(make_finding(
                             self.id(),
                             self.severity(),
@@ -506,7 +520,12 @@ impl Rule for NoPickle {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let dangerous_fns = ["pickle.loads", "pickle.load", "cPickle.loads", "cPickle.load"];
+        let dangerous_fns = [
+            "pickle.loads",
+            "pickle.load",
+            "cPickle.loads",
+            "cPickle.load",
+        ];
 
         walk_tree(tree.root_node(), source, &mut |node, src| {
             if node.kind() == "call" {
@@ -690,7 +709,9 @@ impl Rule for FlaskDebugMode {
                             if &src[attr.byte_range()] == "run" {
                                 if let Some(args) = node.child_by_field_name("arguments") {
                                     let args_text = &src[args.byte_range()];
-                                    if args_text.contains("debug=True") || args_text.contains("debug = True") {
+                                    if args_text.contains("debug=True")
+                                        || args_text.contains("debug = True")
+                                    {
                                         findings.push(make_finding(
                                             self.id(),
                                             self.severity(),
@@ -892,10 +913,7 @@ impl Rule for NoCorsStar {
                             self.id(),
                             self.severity(),
                             self.cwe(),
-                            &format!(
-                                "{} = True — restrict CORS to specific origins",
-                                left_text
-                            ),
+                            &format!("{} = True — restrict CORS to specific origins", left_text),
                             node,
                             src,
                         ));

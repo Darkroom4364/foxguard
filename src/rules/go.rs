@@ -71,10 +71,8 @@ impl Rule for NoSqlInjection {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let sql_pattern = Regex::new(
-            r"(?i)(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|EXEC)\s"
-        )
-        .unwrap();
+        let sql_pattern =
+            Regex::new(r"(?i)(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|EXEC)\s").unwrap();
 
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // Detect: "SELECT ... WHERE id = " + userId (binary_expression with +)
@@ -211,10 +209,9 @@ impl Rule for NoHardcodedSecret {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let secret_pattern = Regex::new(
-            r"(?i)(password|secret|api_?key|token|auth|credential|private_?key)"
-        )
-        .unwrap();
+        let secret_pattern =
+            Regex::new(r"(?i)(password|secret|api_?key|token|auth|credential|private_?key)")
+                .unwrap();
 
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // Short variable declaration: password := "hardcoded"

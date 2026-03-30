@@ -7,10 +7,7 @@ pub fn print_sarif(findings: &[Finding]) {
         .map(|f| {
             let mut props = serde_json::Map::new();
             if let Some(cwe) = &f.cwe {
-                props.insert(
-                    "tags".to_string(),
-                    json!([cwe]),
-                );
+                props.insert("tags".to_string(), json!([cwe]));
             }
 
             json!({

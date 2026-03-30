@@ -1,8 +1,8 @@
 use clap::Parser;
 use foxguard::cli::{Cli, OutputFormat};
 use foxguard::engine::scan_directory;
-use foxguard::rules::RuleRegistry;
 use foxguard::rules::semgrep_compat::load_semgrep_rules;
+use foxguard::rules::RuleRegistry;
 use std::path::Path;
 
 fn main() {

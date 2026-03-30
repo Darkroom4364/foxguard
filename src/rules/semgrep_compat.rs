@@ -169,8 +169,7 @@ fn match_pattern_in_tree(
         } => {
             // If we have an inside pattern, only search within matching contexts
             let search_roots = if let Some(inside_pat) = inside {
-                let inside_matches =
-                    match_single_pattern(inside_pat, root, source, lang);
+                let inside_matches = match_single_pattern(inside_pat, root, source, lang);
                 inside_matches
                     .iter()
                     .map(|m| (m.0, m.1, m.2, m.3))
@@ -200,20 +199,12 @@ fn match_pattern_in_tree(
             // Filter out negative matches
             for neg in negatives {
                 let neg_matches = match_single_pattern(neg, root, source, lang);
-                results.retain(|r| {
-                    !neg_matches
-                        .iter()
-                        .any(|n| n.0 == r.0 && n.1 == r.1)
-                });
+                results.retain(|r| !neg_matches.iter().any(|n| n.0 == r.0 && n.1 == r.1));
             }
 
             // If inside constraint, filter to only matches within those ranges
             if !search_roots.is_empty() {
-                results.retain(|r| {
-                    search_roots.iter().any(|sr| {
-                        r.0 >= sr.0 && r.2 <= sr.2
-                    })
-                });
+                results.retain(|r| search_roots.iter().any(|sr| r.0 >= sr.0 && r.2 <= sr.2));
             }
 
             results
@@ -259,11 +250,7 @@ fn first_meaningful_node<'a>(
     let kind = node.kind();
 
     // These are top-level wrappers that tree-sitter adds
-    if kind == "module"
-        || kind == "program"
-        || kind == "source_file"
-        || kind == "script"
-    {
+    if kind == "module" || kind == "program" || kind == "source_file" || kind == "script" {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if !child.is_extra() {
@@ -401,10 +388,7 @@ fn check_split_metavar(
     let second_text = &pat_src[second.byte_range()];
 
     // Case 1: ERROR node with "$" followed by identifier
-    if first.kind() == "ERROR"
-        && first_text.trim() == "$"
-        && second.kind() == "identifier"
-    {
+    if first.kind() == "ERROR" && first_text.trim() == "$" && second.kind() == "identifier" {
         let metavar = format!("${}", second_text);
         return Some(metavar);
     }
@@ -510,7 +494,9 @@ fn is_metavar(text: &str) -> bool {
     let t = text.trim();
     t.starts_with('$')
         && t.len() > 1
-        && t[1..].chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && t[1..]
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// Check if the pattern text is the special "..." (match-any-string) string literal.
@@ -523,7 +509,11 @@ fn is_any_string_pattern(text: &str) -> bool {
 fn is_string_node(node: tree_sitter::Node, _source: &str) -> bool {
     matches!(
         node.kind(),
-        "string" | "string_literal" | "interpreted_string_literal" | "raw_string_literal" | "template_string"
+        "string"
+            | "string_literal"
+            | "interpreted_string_literal"
+            | "raw_string_literal"
+            | "template_string"
     )
 }
 
@@ -547,9 +537,7 @@ fn map_severity(s: &SemgrepSeverity) -> Severity {
 
 fn map_language(lang_str: &str) -> Option<Language> {
     match lang_str.to_lowercase().as_str() {
-        "javascript" | "js" | "typescript" | "ts" | "jsx" | "tsx" => {
-            Some(Language::JavaScript)
-        }
+        "javascript" | "js" | "typescript" | "ts" | "jsx" | "tsx" => Some(Language::JavaScript),
         "python" | "py" => Some(Language::Python),
         "go" | "golang" => Some(Language::Go),
         _ => None,
@@ -597,11 +585,7 @@ fn build_matcher(yaml: &SemgrepRuleYaml) -> PatternMatcher {
         if yaml.pattern_not.is_some() || yaml.pattern_inside.is_some() {
             return PatternMatcher::Combined {
                 positives: vec![PatternMatcher::Single(pat.clone())],
-                negatives: yaml
-                    .pattern_not
-                    .iter()
-                    .cloned()
-                    .collect(),
+                negatives: yaml.pattern_not.iter().cloned().collect(),
                 inside: yaml.pattern_inside.clone(),
             };
         }

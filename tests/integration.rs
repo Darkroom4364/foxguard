@@ -13,7 +13,10 @@ fn test_vulnerable_js_finds_all_rules() {
         .output()
         .expect("failed to execute foxguard");
 
-    assert!(!output.status.success(), "should exit non-zero when findings exist");
+    assert!(
+        !output.status.success(),
+        "should exit non-zero when findings exist"
+    );
 
     let findings: Vec<serde_json::Value> =
         serde_json::from_slice(&output.stdout).expect("invalid JSON output");
@@ -51,11 +54,7 @@ fn test_vulnerable_js_finds_all_rules() {
     ];
 
     for rule in &expected_rules {
-        assert!(
-            rule_ids.contains(rule),
-            "missing expected rule: {}",
-            rule
-        );
+        assert!(rule_ids.contains(rule), "missing expected rule: {}", rule);
     }
 }
 
@@ -100,11 +99,7 @@ fn test_vulnerable_py_finds_all_rules() {
     ];
 
     for rule in &expected_rules {
-        assert!(
-            rule_ids.contains(rule),
-            "missing expected rule: {}",
-            rule
-        );
+        assert!(rule_ids.contains(rule), "missing expected rule: {}", rule);
     }
 }
 
@@ -142,11 +137,7 @@ fn test_vulnerable_go_finds_all_rules() {
     ];
 
     for rule in &expected_rules {
-        assert!(
-            rule_ids.contains(rule),
-            "missing expected rule: {}",
-            rule
-        );
+        assert!(rule_ids.contains(rule), "missing expected rule: {}", rule);
     }
 }
 
@@ -233,7 +224,13 @@ fn test_severity_filter_high() {
 #[test]
 fn test_severity_filter_critical() {
     let output = foxguard_cmd()
-        .args(["tests/fixtures/vulnerable.js", "-f", "json", "-s", "critical"])
+        .args([
+            "tests/fixtures/vulnerable.js",
+            "-f",
+            "json",
+            "-s",
+            "critical",
+        ])
         .output()
         .expect("failed to execute foxguard");
 

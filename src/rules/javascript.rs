@@ -117,10 +117,9 @@ impl Rule for NoHardcodedSecret {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let secret_pattern = Regex::new(
-            r"(?i)(password|secret|api_?key|token|auth|credential|private_?key)"
-        )
-        .unwrap();
+        let secret_pattern =
+            Regex::new(r"(?i)(password|secret|api_?key|token|auth|credential|private_?key)")
+                .unwrap();
 
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // variable_declarator: const password = "hardcoded"
@@ -211,10 +210,8 @@ impl Rule for NoSqlInjection {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let sql_pattern = Regex::new(
-            r"(?i)(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|EXEC)\s"
-        )
-        .unwrap();
+        let sql_pattern =
+            Regex::new(r"(?i)(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|EXEC)\s").unwrap();
 
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // Detect: query("SELECT * FROM users WHERE id = " + userId)
@@ -346,7 +343,14 @@ impl Rule for NoCommandInjection {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let dangerous_fns = ["exec", "execSync", "spawn", "spawnSync", "execFile", "execFileSync"];
+        let dangerous_fns = [
+            "exec",
+            "execSync",
+            "spawn",
+            "spawnSync",
+            "execFile",
+            "execFileSync",
+        ];
 
         walk_tree(tree.root_node(), source, &mut |node, src| {
             if node.kind() == "call_expression" {
@@ -578,9 +582,18 @@ impl Rule for NoPathTraversal {
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
         let fs_fns = [
-            "readFile", "readFileSync", "writeFile", "writeFileSync",
-            "readdir", "readdirSync", "unlink", "unlinkSync",
-            "stat", "statSync", "access", "accessSync",
+            "readFile",
+            "readFileSync",
+            "writeFile",
+            "writeFileSync",
+            "readdir",
+            "readdirSync",
+            "unlink",
+            "unlinkSync",
+            "stat",
+            "statSync",
+            "access",
+            "accessSync",
         ];
 
         walk_tree(tree.root_node(), source, &mut |node, src| {
@@ -694,9 +707,8 @@ impl Rule for NoUnsafeRegex {
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
         // Patterns known to cause catastrophic backtracking: nested quantifiers
-        let dangerous_pattern = Regex::new(
-            r"(\([^)]*[+*][^)]*\)[+*]|\([^)]*\|[^)]*\)[+*])"
-        ).unwrap();
+        let dangerous_pattern =
+            Regex::new(r"(\([^)]*[+*][^)]*\)[+*]|\([^)]*\|[^)]*\)[+*])").unwrap();
 
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // Detect regex literals: /pattern/
@@ -835,7 +847,10 @@ impl Rule for ExpressCookieNoSecure {
                     let key_inner = key_text.trim_matches(|c| c == '"' || c == '\'');
                     if key_inner == "cookie" && value.kind() == "object" {
                         let obj_text = &src[value.byte_range()];
-                        if !obj_text.contains("secure") || obj_text.contains("secure: false") || obj_text.contains("secure:false") {
+                        if !obj_text.contains("secure")
+                            || obj_text.contains("secure: false")
+                            || obj_text.contains("secure:false")
+                        {
                             findings.push(make_finding(
                                 self.id(),
                                 self.severity(),
@@ -886,7 +901,10 @@ impl Rule for ExpressCookieNoHttpOnly {
                     let key_inner = key_text.trim_matches(|c| c == '"' || c == '\'');
                     if key_inner == "cookie" && value.kind() == "object" {
                         let obj_text = &src[value.byte_range()];
-                        if !obj_text.contains("httpOnly") || obj_text.contains("httpOnly: false") || obj_text.contains("httpOnly:false") {
+                        if !obj_text.contains("httpOnly")
+                            || obj_text.contains("httpOnly: false")
+                            || obj_text.contains("httpOnly:false")
+                        {
                             findings.push(make_finding(
                                 self.id(),
                                 self.severity(),
@@ -927,9 +945,7 @@ impl Rule for ExpressDirectResponseWrite {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let user_input_pattern = Regex::new(
-            r"req\.(params|query|body|headers)"
-        ).unwrap();
+        let user_input_pattern = Regex::new(r"req\.(params|query|body|headers)").unwrap();
 
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // Detect: res.send(req.query.foo), res.write(req.body.bar)
@@ -1008,9 +1024,9 @@ impl Rule for NoCorsStar {
                                             header_name.trim_matches(|c| c == '"' || c == '\'');
                                         let val_inner =
                                             header_val.trim_matches(|c| c == '"' || c == '\'');
-                                        if name_inner.eq_ignore_ascii_case(
-                                            "Access-Control-Allow-Origin",
-                                        ) && val_inner == "*"
+                                        if name_inner
+                                            .eq_ignore_ascii_case("Access-Control-Allow-Origin")
+                                            && val_inner == "*"
                                         {
                                             findings.push(make_finding(
                                                 self.id(),
