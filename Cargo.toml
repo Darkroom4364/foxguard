@@ -1,0 +1,12 @@
+[package]
+name = "foxguard"
+version = "0.1.0"
+edition = "2024"
+description = "Blazing fast security linter for modern codebases. The Ruff of security."
+license = "MIT"
+repository = "https://github.com/peaktwilight/foxguard"
+homepage = "https://foxguard.dev"
+keywords = ["security", "linter", "static-analysis", "sast", "vulnerability"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
