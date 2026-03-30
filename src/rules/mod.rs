@@ -1,0 +1,56 @@
+pub mod javascript;
+pub mod python;
+
+use crate::{Finding, Language, Severity};
+
+/// A security rule that checks parsed source code for vulnerabilities.
+pub trait Rule: Send + Sync {
+    fn id(&self) -> &str;
+    fn severity(&self) -> Severity;
+    fn cwe(&self) -> Option<&str>;
+    fn description(&self) -> &str;
+    fn language(&self) -> Language;
+    fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding>;
+}
+
+/// Registry holding all available rules.
+pub struct RuleRegistry {
+    rules: Vec<Box<dyn Rule>>,
+}
+
+impl RuleRegistry {
+    pub fn new() -> Self {
+        let mut registry = Self { rules: Vec::new() };
+
+        // Register JavaScript rules
+        registry.register(Box::new(javascript::NoEval));
+        registry.register(Box::new(javascript::NoHardcodedSecret));
+        registry.register(Box::new(javascript::NoSqlInjection));
+        registry.register(Box::new(javascript::NoXssInnerHtml));
+        registry.register(Box::new(javascript::NoCommandInjection));
+
+        // Register Python rules
+        registry.register(Box::new(python::NoEval));
+        registry.register(Box::new(python::NoHardcodedSecret));
+        registry.register(Box::new(python::NoSqlInjection));
+
+        registry
+    }
+
+    pub fn register(&mut self, rule: Box<dyn Rule>) {
+        self.rules.push(rule);
+    }
+
+    pub fn rules_for_language(&self, language: Language) -> Vec<&dyn Rule> {
+        self.rules
+            .iter()
+            .filter(|r| r.language() == language)
+            .map(|r| r.as_ref())
+            .collect()
+    }
+
+    #[allow(dead_code)]
+    pub fn all_rules(&self) -> &[Box<dyn Rule>] {
+        &self.rules
+    }
+}

@@ -1,0 +1,75 @@
+use crate::rules::RuleRegistry;
+use crate::{Finding, Language};
+use ignore::WalkBuilder;
+use rayon::prelude::*;
+use std::path::Path;
+use std::sync::Mutex;
+
+/// Detect language from file extension.
+fn detect_language(path: &Path) -> Option<Language> {
+    match path.extension()?.to_str()? {
+        "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" => Some(Language::JavaScript),
+        "py" | "pyw" => Some(Language::Python),
+        _ => None,
+    }
+}
+
+/// Scan a directory (or single file) and return all findings.
+pub fn scan_directory(root: &str, registry: &RuleRegistry) -> Vec<Finding> {
+    let root_path = Path::new(root);
+
+    // Collect files first so we can parallelize
+    let files: Vec<_> = if root_path.is_file() {
+        if let Some(lang) = detect_language(root_path) {
+            vec![(root_path.to_path_buf(), lang)]
+        } else {
+            vec![]
+        }
+    } else {
+        WalkBuilder::new(root)
+            .hidden(true) // skip hidden files
+            .git_ignore(true) // respect .gitignore
+            .build()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_type().is_some_and(|ft| ft.is_file()))
+            .filter_map(|entry| {
+                let path = entry.into_path();
+                detect_language(&path).map(|lang| (path, lang))
+            })
+            .collect()
+    };
+
+    let findings = Mutex::new(Vec::new());
+
+    files.par_iter().for_each(|(path, language)| {
+        let Ok(source) = std::fs::read_to_string(path) else {
+            return;
+        };
+
+        let Some(tree) = super::parser::parse_file(&source, *language) else {
+            return;
+        };
+
+        let file_str = path.display().to_string();
+        let rules = registry.rules_for_language(*language);
+
+        for rule in rules {
+            let mut rule_findings = rule.check(&source, &tree);
+            for f in &mut rule_findings {
+                f.file = file_str.clone();
+            }
+            if !rule_findings.is_empty() {
+                findings.lock().unwrap().extend(rule_findings);
+            }
+        }
+    });
+
+    let mut results = findings.into_inner().unwrap();
+    results.sort_by(|a, b| {
+        a.file
+            .cmp(&b.file)
+            .then(a.line.cmp(&b.line))
+            .then(a.column.cmp(&b.column))
+    });
+    results
+}
