@@ -1,7 +1,7 @@
 {
   "name": "foxguard",
   "version": "0.1.0",
-  "description": "Blazing fast security linter for modern codebases. The Ruff of security.",
+  "description": "Security linter for AI-generated code for modern codebases. The Ruff of security.",
   "license": "MIT",
   "repository": {
     "type": "git",
