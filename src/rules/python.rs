@@ -192,17 +192,15 @@ impl Rule for NoSqlInjection {
             // Detect f-strings with SQL: f"SELECT * FROM users WHERE id = {user_id}"
             if node.kind() == "string" {
                 let text = &src[node.byte_range()];
-                if text.starts_with("f\"") || text.starts_with("f'") || text.starts_with("f\"\"\"") {
-                    if sql_pattern.is_match(text) {
-                        findings.push(make_finding(
-                            self.id(),
-                            self.severity(),
-                            self.cwe(),
-                            "SQL query built with f-string — use parameterized queries",
-                            node,
-                            src,
-                        ));
-                    }
+                if (text.starts_with("f\"") || text.starts_with("f'") || text.starts_with("f\"\"\"")) && sql_pattern.is_match(text) {
+                    findings.push(make_finding(
+                        self.id(),
+                        self.severity(),
+                        self.cwe(),
+                        "SQL query built with f-string — use parameterized queries",
+                        node,
+                        src,
+                    ));
                 }
             }
 

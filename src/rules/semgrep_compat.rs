@@ -180,7 +180,8 @@ fn match_pattern_in_tree(
             };
 
             // Find all positive matches
-            let mut candidates: Option<Vec<(usize, usize, usize, usize, String)>> = None;
+            type Match = (usize, usize, usize, usize, String);
+            let mut candidates: Option<Vec<Match>> = None;
             for pos in positives {
                 let matches = match_pattern_in_tree(pos, root, source, lang);
                 candidates = Some(match candidates {
@@ -253,7 +254,7 @@ fn match_single_pattern(
 /// Skip wrapper nodes (module, program, expression_statement) to get the real pattern.
 fn first_meaningful_node<'a>(
     node: tree_sitter::Node<'a>,
-    source: &str,
+    _source: &str,
 ) -> Option<tree_sitter::Node<'a>> {
     let kind = node.kind();
 
@@ -266,7 +267,7 @@ fn first_meaningful_node<'a>(
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if !child.is_extra() {
-                return first_meaningful_node(child, source);
+                return first_meaningful_node(child, _source);
             }
         }
         return None;
@@ -384,6 +385,38 @@ fn named_children(node: tree_sitter::Node) -> Vec<tree_sitter::Node> {
     node.named_children(&mut cursor).collect()
 }
 
+/// Check if a pattern child sequence at index `pi` represents a split metavariable
+/// (e.g., ERROR("$") + identifier("VAR") -> "$VAR").
+fn check_split_metavar(
+    pat_children: &[tree_sitter::Node],
+    pi: usize,
+    pat_src: &str,
+) -> Option<String> {
+    if pi + 1 >= pat_children.len() {
+        return None;
+    }
+    let first = pat_children[pi];
+    let second = pat_children[pi + 1];
+    let first_text = &pat_src[first.byte_range()];
+    let second_text = &pat_src[second.byte_range()];
+
+    // Case 1: ERROR node with "$" followed by identifier
+    if first.kind() == "ERROR"
+        && first_text.trim() == "$"
+        && second.kind() == "identifier"
+    {
+        let metavar = format!("${}", second_text);
+        return Some(metavar);
+    }
+
+    // Case 2: ERROR node that contains the full "$VAR" text
+    if first.kind() == "ERROR" && is_metavar(first_text) {
+        return Some(first_text.to_string());
+    }
+
+    None
+}
+
 /// Match pattern children against target children, handling `...` ellipsis.
 fn match_children_with_ellipsis(
     target_children: &[tree_sitter::Node],
@@ -432,6 +465,25 @@ fn match_children_with_ellipsis(
             if ti > target_children.len() {
                 return false;
             }
+        } else if let Some(metavar) = check_split_metavar(pat_children, pi, pat_src) {
+            // Split metavar: ERROR("$") + identifier("VAR") => treat as $VAR
+            if ti >= target_children.len() {
+                return false;
+            }
+            let target_text = &target_src[target_children[ti].byte_range()];
+            if let Some(existing) = bindings.get(&metavar) {
+                if existing != target_text {
+                    return false;
+                }
+            } else {
+                bindings.insert(metavar.clone(), target_text.to_string());
+            }
+            ti += 1;
+            // Skip both the ERROR and identifier pattern children
+            pi += 2;
+        } else if pat_child.kind() == "ERROR" && pat_src[pat_child.byte_range()].trim() == "$" {
+            // Lone ERROR "$" without following identifier -- skip it
+            pi += 1;
         } else {
             if ti >= target_children.len() {
                 return false;
@@ -723,6 +775,26 @@ rules:
         let rules = parse_semgrep_file(f.path()).unwrap();
 
         let source = "password = \"supersecret\"\nusername = \"admin\"\n";
+        let tree = parse_file(source, Language::Python).unwrap();
+        let findings = rules[0].check(source, &tree);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].line, 1);
+    }
+
+    #[test]
+    fn test_match_string_concat_with_metavar() {
+        let yaml = r#"
+rules:
+  - id: string-concat
+    pattern: '"..." + $VAR'
+    message: String concatenation
+    severity: WARNING
+    languages: [python]
+"#;
+        let f = make_yaml(yaml);
+        let rules = parse_semgrep_file(f.path()).unwrap();
+
+        let source = "query = \"SELECT \" + user_input\nsafe = 1 + 2\n";
         let tree = parse_file(source, Language::Python).unwrap();
         let findings = rules[0].check(source, &tree);
         assert_eq!(findings.len(), 1);

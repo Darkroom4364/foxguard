@@ -1,6 +1,6 @@
 rules:
   - id: sql-injection
-    pattern: cursor.execute("..." + $VAR)
+    pattern: '"..." + $VAR'
     message: Possible SQL injection via string concatenation
     severity: ERROR
     languages: [python]

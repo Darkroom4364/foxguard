@@ -1,6 +1,5 @@
 use foxguard::engine::parser::parse_file;
 use foxguard::rules::semgrep_compat::{load_semgrep_rules, parse_semgrep_file};
-use foxguard::rules::Rule;
 use foxguard::Language;
 use std::path::Path;
 
