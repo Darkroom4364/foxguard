@@ -1,0 +1,38 @@
+// Safe JavaScript file — no vulnerabilities
+
+const crypto = require("crypto");
+const fs = require("fs");
+
+// Safe: parameterized query
+function getUser(db, id) {
+    return db.query("SELECT * FROM users WHERE id = ?", [id]);
+}
+
+// Safe: textContent instead of innerHTML
+function setContent(el, text) {
+    el.textContent = text;
+}
+
+// Safe: strong hash
+function hashData(data) {
+    return crypto.createHash("sha256").update(data).digest("hex");
+}
+
+// Safe: static file path
+function readConfig() {
+    return fs.readFileSync("/etc/app/config.json");
+}
+
+// Safe: no hardcoded secrets
+const config = {
+    apiUrl: "https://api.example.com",
+    timeout: 5000,
+};
+
+// Safe: specific CORS origin
+const corsOptions = { origin: "https://example.com" };
+
+// Safe: safe regex
+const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+module.exports = { getUser, setContent, hashData, readConfig };

@@ -1,0 +1,58 @@
+name: "Foxguard Security Scan"
+description: "Blazing fast security linter for modern codebases"
+author: "peaktwilight"
+
+branding:
+  icon: "shield"
+  color: "orange"
+
+inputs:
+  path:
+    description: "Path to scan"
+    required: false
+    default: "."
+  severity:
+    description: "Minimum severity to report (low, medium, high, critical)"
+    required: false
+    default: "low"
+  format:
+    description: "Output format (terminal, json, sarif)"
+    required: false
+    default: "sarif"
+  version:
+    description: "Foxguard version to use (defaults to latest)"
+    required: false
+    default: "latest"
+  fail-on-findings:
+    description: "Fail the check if findings above severity threshold exist"
+    required: false
+    default: "true"
+  upload-sarif:
+    description: "Upload SARIF results to GitHub Code Scanning"
+    required: false
+    default: "true"
+  github-token:
+    description: "GitHub token for uploading SARIF results"
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  findings-count:
+    description: "Number of findings detected"
+  sarif-file:
+    description: "Path to the SARIF output file"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run Foxguard
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_SEVERITY: ${{ inputs.severity }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+        INPUT_UPLOAD_SARIF: ${{ inputs.upload-sarif }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: ${{ github.action_path }}/entrypoint.sh
