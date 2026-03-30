@@ -977,7 +977,10 @@ impl Rule for ExpressDirectResponseWrite {
                                     let mut cursor = args.walk();
                                     for arg in args.children(&mut cursor) {
                                         // Skip punctuation (parens, commas)
-                                        if arg.kind() == "(" || arg.kind() == ")" || arg.kind() == "," {
+                                        if arg.kind() == "("
+                                            || arg.kind() == ")"
+                                            || arg.kind() == ","
+                                        {
                                             continue;
                                         }
                                         // Only flag when the argument is a direct member/subscript
@@ -986,9 +989,7 @@ impl Rule for ExpressDirectResponseWrite {
                                         // (wrapping functions), and template literals are NOT
                                         // direct -- they mix or transform the input.
                                         let kind = arg.kind();
-                                        if kind != "member_expression"
-                                            && kind != "identifier"
-                                        {
+                                        if kind != "member_expression" && kind != "identifier" {
                                             continue;
                                         }
                                         let arg_text = &src[arg.byte_range()];
