@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Fox head silhouette -->
+  <path d="M8 16 L20 4 L24 20 L32 12 L40 20 L44 4 L56 16 L52 32 L48 36 L44 48 L36 56 L28 56 L20 48 L16 36 L12 32 Z" fill="#4ade80"/>
+  <!-- Eyes -->
+  <circle cx="24" cy="32" r="3" fill="#0a0a0a"/>
+  <circle cx="40" cy="32" r="3" fill="#0a0a0a"/>
+  <!-- Nose -->
+  <ellipse cx="32" cy="42" rx="3" ry="2" fill="#0a0a0a"/>
+</svg>
