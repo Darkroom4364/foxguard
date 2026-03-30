@@ -1,6 +1,14 @@
-# foxguard
+<p align="center">
+  <img src="assets/logo.svg" width="80" alt="foxguard logo" />
+</p>
 
-Security linter built for AI-generated code. Written in Rust.
+<h1 align="center">foxguard</h1>
+
+<p align="center">
+  The security linter fast enough to sit between your AI and your codebase.
+  <br/>
+  <a href="https://foxguard.dev">foxguard.dev</a> | <a href="https://crates.io/crates/foxguard">crates.io</a> | <a href="https://www.npmjs.com/package/foxguard">npm</a>
+</p>
 
 > Your AI writes code. foxguard catches what it gets wrong.
 
