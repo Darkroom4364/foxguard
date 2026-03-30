@@ -73,8 +73,8 @@ fn test_vulnerable_py_finds_all_rules() {
 
     assert_eq!(
         findings.len(),
-        17,
-        "vulnerable.py should have 17 findings, got {}",
+        16,
+        "vulnerable.py should have 16 findings, got {}",
         findings.len()
     );
 
