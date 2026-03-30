@@ -1,0 +1,10 @@
+rules:
+  - id: eval-usage
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+    message: Use of eval/exec allows arbitrary code execution
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: "CWE-95"

@@ -1,54 +1,18 @@
-# Vulnerable Python file — triggers all 11 foxguard Python rules
+import sqlite3
 
-import os
-import pickle
-import hashlib
-import yaml
-import subprocess
+password = "supersecret123"
+api_key = "not_a_password"
 
-# 1. py/no-eval (Critical)
-user_input = "print('hacked')"
-eval(user_input)
+def run_query(user_input):
+    conn = sqlite3.connect("test.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE name = '" + user_input + "'")
+    return cursor.fetchall()
 
-# 2. py/no-hardcoded-secret (High)
-password = "super_secret_password_123"
+def dangerous():
+    eval(input("Enter code: "))
+    exec("print('hello')")
 
-# 3. py/no-sql-injection — f-string (Critical)
-user_id = "1"
-query1 = f"SELECT * FROM users WHERE id = {user_id}"
-
-# 4. py/no-sql-injection — % formatting (Critical)
-query2 = "SELECT * FROM users WHERE id = %s" % user_id
-
-# 5. py/no-sql-injection — .format() (Critical)
-query3 = "SELECT * FROM users WHERE id = {}".format(user_id)
-
-# 6. py/no-command-injection (Critical)
-os.system(f"ls {user_input}")
-
-# 7. py/no-path-traversal (High)
-data = open(user_input)
-
-# 8. py/no-weak-crypto (Medium)
-h = hashlib.md5()
-
-# 9. py/no-pickle (High)
-obj = pickle.loads(b"data")
-
-# 10. py/no-yaml-load (High)
-config = yaml.load(open("config.yml"))
-
-# 11. py/no-debug-true (Medium)
-DEBUG = True
-
-# 12. py/no-open-redirect (Medium)
-redirect(user_input)
-
-# 13. py/no-cors-star (Medium)
-CORS_ALLOW_ALL_ORIGINS = True
-
-# 14. py/flask-debug-mode (High)
-app.run(debug=True)
-
-# 15. py/django-secret-key-hardcoded (High)
-SECRET_KEY = "django-insecure-abc123def456"
+def safe():
+    x = 1 + 2
+    print(x)

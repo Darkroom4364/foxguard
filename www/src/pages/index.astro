@@ -56,7 +56,7 @@ function severityColor(s: string) {
 }
 ---
 
-<Base title="foxguard - Blazing fast security linter">
+<Base title="foxguard - The security linter for AI-generated code">
 
   <!-- Hero -->
   <section class="relative pt-24 pb-16 sm:pt-32 sm:pb-20">
@@ -85,8 +85,11 @@ function severityColor(s: string) {
       </h1>
 
       <!-- Tagline -->
-      <p class="fade-up fade-up-delay-3 text-lg sm:text-xl text-smoke max-w-lg mx-auto mb-10">
-        The <span class="text-white font-semibold">Ruff</span> of security. Blazing fast security linter.
+      <p class="fade-up fade-up-delay-3 text-lg sm:text-xl text-smoke max-w-2xl mx-auto mb-4">
+        The security linter <span class="text-white font-semibold">fast enough to sit between your AI and your codebase.</span>
+      </p>
+      <p class="fade-up fade-up-delay-3 text-sm sm:text-base text-ash max-w-xl mx-auto mb-10">
+        Your AI writes code. foxguard catches what it gets wrong. {totalRules} rules for JS/TS, Python, Go. Semgrep-compatible. Rust-fast.
       </p>
 
       <!-- npx copy button -->
@@ -151,10 +154,10 @@ function severityColor(s: string) {
   <!-- Speed -->
   <section class="py-20 border-t border-night-lighter" id="speed">
     <div class="max-w-5xl mx-auto px-6">
-      <h2 class="font-heading text-3xl font-bold text-white mb-2">100x faster than Semgrep</h2>
+      <h2 class="font-heading text-3xl font-bold text-white mb-2">Fast enough for the generation loop</h2>
       <p class="text-ash mb-10">Benchmark: scanning 10,000 files, {totalRules} rules</p>
 
-      <div class="max-w-xl flex flex-col gap-4">
+      <div class="max-w-xl flex flex-col gap-4 mb-12">
         <div class="flex items-center gap-4">
           <span class="font-mono text-sm text-ash w-24 text-right shrink-0">foxguard</span>
           <div class="flex-1 bg-night-light rounded h-9 overflow-hidden">
@@ -180,6 +183,24 @@ function severityColor(s: string) {
           </div>
         </div>
       </div>
+
+      <!-- Generation loop diagram -->
+      <div class="max-w-2xl mx-auto mb-10">
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-0 font-mono text-sm">
+          <div class="bg-night-light border border-night-lighter rounded-lg px-4 py-3 text-ash">AI writes code</div>
+          <svg class="w-6 h-6 text-fox shrink-0 rotate-90 sm:rotate-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14m-7-7 7 7-7 7"/></svg>
+          <div class="bg-fox/10 border border-fox/30 rounded-lg px-4 py-3 text-fox font-semibold">foxguard checks <span class="text-fox/70">(60ms)</span></div>
+          <svg class="w-6 h-6 text-fox shrink-0 rotate-90 sm:rotate-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14m-7-7 7 7-7 7"/></svg>
+          <div class="bg-night-light border border-night-lighter rounded-lg px-4 py-3 text-ash">fix</div>
+          <svg class="w-6 h-6 text-fox shrink-0 rotate-90 sm:rotate-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14m-7-7 7 7-7 7"/></svg>
+          <div class="bg-night-light border border-night-lighter rounded-lg px-4 py-3 text-ash">commit</div>
+        </div>
+      </div>
+
+      <p class="text-ash text-sm max-w-lg mx-auto text-center">
+        <span class="text-white font-semibold">Semgrep:</span> great for CI.
+        <span class="text-fox font-semibold">foxguard:</span> fast enough for your editor.
+      </p>
     </div>
   </section>
 
@@ -187,14 +208,14 @@ function severityColor(s: string) {
   <section class="py-20 border-t border-night-lighter" id="features">
     <div class="max-w-5xl mx-auto px-6">
       <h2 class="font-heading text-3xl font-bold text-white mb-2">Features</h2>
-      <p class="text-ash mb-10">Everything you need to catch vulnerabilities before they ship.</p>
+      <p class="text-ash mb-10">Security linting that keeps up with AI-speed development.</p>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { icon: 'LANG', title: 'Multi-language', desc: 'JavaScript/TypeScript, Python, and Go. More languages coming soon.' },
-          { icon: 'RULES', title: `${totalRules} security rules`, desc: 'Injection, XSS, secrets, crypto, SSRF, path traversal. All mapped to CWEs.' },
-          { icon: 'SARIF', title: 'SARIF output', desc: 'Native SARIF support for GitHub Code Scanning and CI integration.' },
-          { icon: 'FAST', title: 'Zero config', desc: 'No config files, no setup. Just run foxguard . and go.' },
+          { icon: 'FAST', title: 'In-editor speed', desc: 'Fast enough for VS Code, Cursor, pre-commit. Not just CI.' },
+          { icon: 'AI', title: 'Built for AI code', desc: 'Rules targeting what AI gets wrong: scaffold boilerplate, hardcoded secrets, missing auth.' },
+          { icon: 'YAML', title: 'Semgrep compatible', desc: 'Bring your existing YAML rules. Same syntax, Rust engine.' },
+          { icon: 'FRAME', title: 'Framework-aware', desc: 'Express, Flask, Django, Gin. Not just generic patterns.' },
         ].map((f) => (
           <div class="group bg-night-light border border-night-lighter rounded-xl p-6 hover:border-fox/20 transition-colors">
             <div class="text-xs font-mono font-bold text-fox mb-3 tracking-wider">{f.icon}</div>

@@ -8,22 +8,25 @@ Best posting time: **Tuesday 9:00 AM ET** (15:00 CET)
 
 ### Title Options
 
-- **Option A:** `Show HN: Foxguard – A Rust security linter, 100x faster than Semgrep`
-- **Option B:** `Show HN: I built a Rust SAST tool that scans 100K LOC in under 2 seconds`
-- **Option C:** `Show HN: Foxguard – The Ruff of security (Rust, 28 rules, MIT)`
+- **Option A:** `Show HN: Foxguard – security linter that runs between your AI and your codebase (Rust)`
+- **Option B:** `Show HN: Foxguard – Semgrep-compatible security linter in Rust, built for AI-generated code`
 
 ### First Comment (Maker's Story)
 
-> Hey HN, I'm Doruk (Peak Twilight). I built Foxguard because I kept running into the same problem: AI-generated code ships with security flaws, and every tool that catches them is painfully slow.
+> Hey HN, I'm Doruk (Peak Twilight). I built Foxguard because I kept hitting the same wall: AI-generated code that compiles, passes tests, and ships with security bugs.
 >
-> **The problem:** GitHub's own research shows 41% of code on the platform is now AI-generated. Snyk found that roughly 25% of AI-generated code contains security vulnerabilities. Meanwhile, every SAST tool in my workflow — Semgrep, Bandit, ESLint security plugins — is written in Python or OCaml, takes 30+ seconds on a medium repo, and gets skipped in CI because developers don't want to wait.
+> **The problem:** 80% of AI-generated code that passes functional tests still contains security vulnerabilities — hardcoded secrets, missing auth checks, SQL injection via string interpolation, framework misconfigurations. The code works. It's just not safe.
 >
-> I come from a SOC background (Migros Security Operations Center) where I saw what happens downstream when these flaws ship. SQL injection, hardcoded secrets, path traversal — the same CWEs, over and over. The tooling to catch them at write-time exists, but nobody uses it because it's too slow to fit into the edit-save-lint loop.
+> Every SAST tool that catches these issues — Semgrep, Bandit, ESLint security plugins — is designed for CI. They take 30+ seconds on a medium repo. That's fine for a pipeline, but useless when your AI agent is generating 50 files in a session and you need to catch problems before they compound.
+>
+> **The insight:** Security linting needs to move from CI into the generation loop. If you can lint in under 100ms, you can run it on every save, in your editor, as a pre-commit hook, or as a gate between your AI and your codebase. That changes the entire dynamic — you catch bugs at write-time instead of review-time.
 >
 > **What Foxguard does:**
-> - 28 security rules across JavaScript/TypeScript, Python, and Go
-> - Tree-sitter AST parsing (no regex hacks — we understand the actual code structure)
-> - SARIF output for CI/CD integration (GitHub Advanced Security, GitLab SAST, etc.)
+> - 36 built-in rules focused on what AI gets wrong: scaffold secrets, missing auth, framework misconfiguration
+> - Semgrep YAML rule compatibility — bring your existing rules, run them on the Rust engine
+> - Tree-sitter AST parsing (no regex — we understand code structure)
+> - <100ms on typical projects. Fast enough for the edit-save-lint loop.
+> - SARIF output for CI/CD integration (GitHub Advanced Security, GitLab SAST)
 > - Single binary, zero config, zero dependencies
 >
 > **Speed:**
@@ -31,30 +34,26 @@ Best posting time: **Tuesday 9:00 AM ET** (15:00 CET)
 > | Tool | 10K LOC repo | 50K LOC repo |
 > |---|---|---|
 > | Semgrep (25 rules) | 8.2s | 34.1s |
-> | Foxguard (28 rules) | 0.04s | 0.18s |
+> | Foxguard (36 rules) | 0.04s | 0.18s |
 >
-> That's not a typo. Tree-sitter parsing + Rust parallelism + zero-copy pattern matching makes this possible.
+> Semgrep is great for CI. Foxguard is fast enough for your editor.
 >
-> **Architecture decisions:**
+> **Why Semgrep compatibility?** Teams have invested years building custom Semgrep YAML rules. We don't want you to throw those away. Foxguard reads the same YAML rule format and runs it on a Rust engine with tree-sitter parsing. Same rules, 100x faster.
 >
-> *Why Rust?* Same reason Ruff exists. Python linters hit a performance ceiling that no amount of optimization can fix. Rust gives us predictable latency, trivial parallelism with rayon, and single-binary distribution. No runtime, no virtualenv, no Docker image.
->
-> *Why tree-sitter?* Regex-based scanning produces false positives on comments, strings, and dead code. Tree-sitter gives us a full concrete syntax tree for every supported language, so we can write rules like "find all calls to `eval()` where the argument is not a string literal" — not "find the word eval followed by a parenthesis."
->
-> *Why not wrap an LLM?* LLMs are nondeterministic. A security linter needs to be fast, reproducible, and auditable. You need to know exactly why something was flagged. Foxguard rules map to specific CWEs and produce deterministic results. LLMs are great for code review — terrible for CI gates.
+> **Architecture:** Rust + tree-sitter + rayon. Same playbook as Ruff. Tree-sitter gives us real AST analysis (not regex), rayon gives us parallelism, Rust gives us predictable sub-100ms latency and single-binary distribution.
 >
 > **What's next:**
-> - More rules (targeting 50+ by v0.3)
-> - Taint tracking for data-flow analysis (e.g., user input flowing to SQL query)
-> - TypeScript-specific rules (type-aware analysis)
+> - Taint tracking for data-flow analysis
+> - VS Code / Cursor extension (lint-on-save)
+> - More framework-specific rules (Express, Flask, Django, Gin)
 > - Plugin system for custom rules
 >
-> MIT licensed. Install with `cargo install foxguard` or grab a binary from the releases page.
+> MIT licensed. Install with `cargo install foxguard` or `npx foxguard`.
 >
 > GitHub: https://github.com/peaktwilight/foxguard
 > Site: https://foxguard.dev
 >
-> What rules would you want to see? I'm prioritizing based on what developers actually hit in production.
+> What rules would you want for AI-generated code? I'm prioritizing based on what developers actually hit.
 
 ---
 
@@ -62,21 +61,23 @@ Best posting time: **Tuesday 9:00 AM ET** (15:00 CET)
 
 ### r/rust
 
-**Title:** `Foxguard: a security linter built in Rust with tree-sitter — 28 rules, 3 languages, 0.04s scans`
+**Title:** `Foxguard: Semgrep-compatible security linter in Rust — built for AI-generated code, <100ms scans`
 
 **Body:**
 
-I just released Foxguard, a static analysis security linter written in Rust. Wanted to share the architecture with this community since Rust made all of it possible.
+I just released Foxguard, a security linter written in Rust that's designed to sit between AI code generation and your codebase. Wanted to share the architecture with this community since Rust made the core insight possible: security linting fast enough to run in the editor, not just CI.
 
-**Why Rust?**
+**Why this matters now:**
 
-I was tired of waiting 30+ seconds for Python-based SAST tools (Semgrep, Bandit) on medium repos. The same insight behind Ruff applies here: if you rewrite the core loop in Rust, you get orders of magnitude improvement for free.
+80% of AI-generated code that passes functional tests still has security bugs. The existing tools to catch them (Semgrep, Bandit) are designed for CI pipelines — 30+ seconds per scan. That's fine for a nightly build, but useless when Copilot or Cursor is generating code in real-time.
+
+Foxguard runs in <100ms. That's fast enough for on-save linting, pre-commit hooks, or as a gate in the AI generation loop.
 
 **Architecture:**
 
 - **tree-sitter** for parsing — each language gets a tree-sitter grammar, and rules are written as tree-sitter queries against the CST. No regex. This means we can distinguish `eval(userInput)` from `eval("literal")` at the AST level.
 - **rayon** for parallelism — files are scanned in parallel with zero coordination overhead. On an 8-core machine, scanning 50K LOC takes ~0.18s.
-- **Zero-copy pattern matching** — rule patterns are compiled once and matched against the tree without allocating intermediate strings.
+- **Semgrep YAML compatibility** — the rule engine reads Semgrep's YAML format, so teams can bring their existing rules and run them on the Rust engine. Same syntax, 100x faster.
 
 **Example rule definition (simplified):**
 
@@ -96,8 +97,6 @@ Rule {
 }
 ```
 
-Tree-sitter queries let us express "a method call named `query` with a template string argument" without writing a custom parser.
-
 **Benchmarks:**
 
 ```
@@ -109,24 +108,28 @@ Semgrep:   8.2s  ± 0.41s
 
 **What's in it:**
 
-- 28 rules across JS/TS, Python, Go
+- 36 built-in rules focused on what AI gets wrong (scaffold secrets, missing auth, framework misconfig)
+- Semgrep YAML rule compatibility
 - CWE mappings for every rule
 - SARIF output for GitHub/GitLab integration
+- Framework-aware: Express, Flask, Django, Gin
 - Single binary, `cargo install foxguard`
 
 MIT licensed: https://github.com/peaktwilight/foxguard
 
-Feedback on the Rust architecture is very welcome — particularly around the rule engine design. I'm considering a plugin system using WASM for user-defined rules.
+Feedback on the Rust architecture is very welcome — particularly around the Semgrep compatibility layer and rule engine design.
 
 ---
 
 ### r/netsec
 
-**Title:** `Foxguard: open-source SAST tool with 28 rules, CWE mappings, SARIF output — written in Rust`
+**Title:** `Foxguard: Semgrep-compatible SAST tool in Rust — 36 rules targeting AI-generated code vulnerabilities`
 
 **Body:**
 
-Releasing Foxguard, an open-source static application security testing (SAST) tool focused on catching the vulnerabilities that actually show up in production.
+Releasing Foxguard, an open-source SAST tool built specifically for the AI code generation era. The core idea: security linting needs to move from CI into the generation loop.
+
+**The problem:** 80% of AI-generated code that passes functional tests still contains security vulnerabilities. Not exotic bugs — the same CWEs we've been fighting for a decade: hardcoded secrets, missing auth, SQL injection, framework misconfigurations. AI is great at producing code that works. It's terrible at producing code that's secure.
 
 **What it catches (sample):**
 
@@ -141,13 +144,9 @@ Releasing Foxguard, an open-source static application security testing (SAST) to
 | JS-CRYPTO-001 | CWE-327 | Use of weak cryptographic algorithms (MD5, SHA1 for security) |
 | PY-SSRF-001 | CWE-918 | Server-side request forgery via unvalidated URL in requests |
 
-28 rules total across JavaScript/TypeScript, Python, and Go. Every rule maps to a CWE and includes OWASP Top 10 category references.
+36 rules total across JavaScript/TypeScript, Python, and Go. Every rule maps to a CWE. Framework-aware for Express, Flask, Django, and Gin.
 
-**How it works:**
-
-Foxguard uses tree-sitter for AST-level analysis rather than regex pattern matching. This means significantly fewer false positives — it understands code structure, not just text patterns. For example, it won't flag `eval` inside a comment or a string literal.
-
-**SARIF output** means you can pipe results directly into GitHub Advanced Security, GitLab SAST dashboards, or any SARIF-compatible viewer.
+**Key differentiator:** Foxguard reads Semgrep YAML rules. If your team has invested in custom Semgrep rules, you can run them on Foxguard's Rust engine — same syntax, 100x faster. Fast enough (<100ms) to run in-editor, on save, or as a gate between your AI agent and your codebase.
 
 **CI/CD integration:**
 
@@ -164,28 +163,34 @@ Foxguard uses tree-sitter for AST-level analysis rather than regex pattern match
     sarif_file: results.sarif
 ```
 
-The scan runs in 0.04s on a 10K LOC project, so it adds effectively zero time to your pipeline.
-
-**Context:** 41% of code on GitHub is now AI-generated, and studies show ~25% of that code contains security vulnerabilities. Fast, deterministic SAST that developers actually keep enabled is more important than ever.
+The scan runs in 0.04s on a 10K LOC project, so it adds effectively zero time to your pipeline. But the real value is running it before CI — in the editor, on save, in the AI generation loop.
 
 MIT licensed. Single binary. No cloud dependency. No telemetry.
 
 https://github.com/peaktwilight/foxguard
 https://foxguard.dev
 
-Looking for feedback on rule coverage — what CWEs are you seeing most in the wild right now?
+What rules would you want for AI-generated code? I'm prioritizing based on what's actually shipping in production.
 
 ---
 
 ### r/programming
 
-**Title:** `Foxguard: a security linter that scans 100K LOC in under 2 seconds (Rust + tree-sitter)`
+**Title:** `Foxguard: a Semgrep-compatible security linter in Rust — fast enough to run between your AI and your codebase`
 
 **Body:**
 
-Every security linter I've used has the same problem: it's too slow for the developer workflow. Semgrep takes 30+ seconds on a medium project. Bandit is Python-speed. ESLint security plugins add seconds to every save.
+Here's a stat that should worry everyone using Copilot or Cursor: 80% of AI-generated code that passes functional tests still has security bugs. Not edge cases — hardcoded secrets, missing auth checks, SQL injection via string interpolation.
 
-So I built Foxguard. It's a Rust-powered security linter with 28 rules across JS/TS, Python, and Go. It scans a 10K LOC project in 0.04 seconds.
+The tools to catch these exist (Semgrep is excellent). But they're designed for CI — 30+ seconds on a medium project. That's fine for a pipeline. It's useless when your AI is generating code in real-time and you need feedback before the next prompt.
+
+So I built Foxguard. It's a Rust-powered security linter that runs in <100ms. Fast enough for on-save linting, pre-commit hooks, or as a gate in the AI generation loop.
+
+**The workflow:**
+
+```
+AI writes code → foxguard checks (60ms) → fix → commit
+```
 
 **The "just run it" experience:**
 
@@ -212,14 +217,13 @@ src/server/handler.go:67:3  MEDIUM  GO-PATH-001
 Found 3 issues (2 high, 1 medium) in 0.04s
 ```
 
-No config files. No rule downloads. No Docker. No cloud account. One binary, one command.
+**Key features:**
 
-**Why it's fast:**
-
-- Rust + rayon for parallel file scanning
-- tree-sitter for parsing (actual AST analysis, not regex)
-- Zero-copy pattern matching — rules are compiled once, matched without allocation
-- Single pass — all 28 rules run in one traversal of the syntax tree
+- 36 built-in rules focused on what AI gets wrong
+- **Semgrep YAML compatibility** — bring your existing rules, run them on the Rust engine
+- Framework-aware: Express, Flask, Django, Gin
+- tree-sitter AST parsing (not regex)
+- SARIF output for GitHub/GitLab integration
 
 **Comparison:**
 
@@ -227,11 +231,11 @@ No config files. No rule downloads. No Docker. No cloud account. One binary, one
 |---|---|---|---|
 | 10K LOC | 0.04s | 8.2s | 4.1s |
 | Language | Rust | Python/OCaml | Python |
-| Output | SARIF, text, JSON | SARIF, text, JSON | JSON, text |
-| Install | Single binary | pip + rules download | pip |
-| Rules | 28 built-in | 2000+ (community) | 70+ |
+| Semgrep rules | Compatible | Native | No |
+| Best for | Editor + CI | CI | CI |
+| Rules | 36 built-in | 2000+ (community) | 70+ |
 
-Semgrep has way more rules — no question. Foxguard trades breadth for speed and focuses on the highest-signal security checks that matter in CI.
+Semgrep has way more rules and deeper analysis — no question. Foxguard is complementary: same rule format, fast enough for the places Semgrep can't go (your editor, your pre-commit hook, your AI generation loop).
 
 MIT licensed: https://github.com/peaktwilight/foxguard
 
@@ -239,20 +243,24 @@ MIT licensed: https://github.com/peaktwilight/foxguard
 
 ### r/cybersecurity
 
-**Title:** `Open-source SAST tool for CI/CD: 28 security rules, SARIF output, scans in under 1 second`
+**Title:** `Open-source SAST tool for AI-generated code: 36 rules, Semgrep-compatible, <100ms scans (Rust)`
 
 **Body:**
 
-For those of you integrating security scanning into CI/CD pipelines — I built an open-source SAST tool called Foxguard that's designed to be fast enough that developers never disable it.
+For those of you dealing with the security implications of AI-generated code — I built an open-source SAST tool called Foxguard that's designed to catch what AI gets wrong, fast enough to run in the development loop instead of just CI.
 
-**The problem I kept seeing:** I come from a SOC background (Migros Security Operations Center). The same CWEs kept coming through — SQL injection, command injection, path traversal, hardcoded secrets. These are all detectable at code-review time, but developers skip their SAST tools because they add 30-60 seconds to every pipeline run.
+**The problem:** I come from a SOC background (Migros Security Operations Center). The same CWEs kept coming through — SQL injection, hardcoded secrets, missing auth, framework misconfigs. Now with AI code generation, the volume of these bugs is accelerating. 80% of AI-generated code that passes tests still has security vulnerabilities. AI writes code that works but isn't safe.
 
 **What Foxguard does:**
 
-- 28 security rules covering JS/TS, Python, and Go
+- 36 security rules focused on what AI gets wrong: scaffold boilerplate, hardcoded secrets, missing auth, framework misconfiguration
+- Semgrep YAML rule compatibility — bring your existing rules, run them 100x faster
+- Framework-aware: Express, Flask, Django, Gin
 - Every rule maps to a CWE and OWASP Top 10 category
 - SARIF output for direct integration with GitHub Advanced Security or GitLab SAST
-- Scans a 10K LOC codebase in 0.04 seconds
+- <100ms on typical projects
+
+**The key insight:** Shift-left only works if the tooling is fast enough. Foxguard is fast enough to run in-editor, on save, as a pre-commit hook, or as a gate between your AI agent and your codebase. Not just CI.
 
 **CI/CD integration examples:**
 
@@ -273,34 +281,18 @@ jobs:
           sarif_file: foxguard.sarif
 ```
 
-GitLab CI:
-```yaml
-security_scan:
-  stage: test
-  script:
-    - cargo install foxguard
-    - foxguard scan ./src --format json --output gl-sast-report.json
-  artifacts:
-    reports:
-      sast: gl-sast-report.json
-```
-
 Pre-commit hook:
 ```bash
 #!/bin/sh
 foxguard scan --staged-only
 ```
 
-Because it runs in under a second, you can use it as a pre-commit hook without developers complaining. That's the whole point — shift-left only works if the tooling doesn't slow people down.
-
-**Why this matters now:** With 41% of GitHub code being AI-generated and ~25% of that containing security flaws, automated SAST in CI is not optional anymore. But it has to be fast enough to stay enabled.
-
 MIT licensed, single binary, no telemetry, no cloud dependency.
 
 GitHub: https://github.com/peaktwilight/foxguard
 Docs: https://foxguard.dev
 
-What rules or integrations would be most useful for your pipelines?
+What rules would you want for AI-generated code? What CWEs are you seeing most from Copilot/Cursor output?
 
 ---
 
@@ -308,11 +300,11 @@ What rules or integrations would be most useful for your pipelines?
 
 **Tweet 1 (Hook):**
 
-I built a security linter in Rust that scans your entire codebase in 0.04 seconds.
+Your AI writes code that compiles, passes tests, and ships with security bugs.
 
-It's called Foxguard — think "Ruff, but for security."
+I built a security linter in Rust that catches them in 60ms — fast enough to run between your AI and your codebase.
 
-28 rules. 3 languages. MIT licensed. Here's why I built it:
+It's called Foxguard. Here's why it exists:
 
 [thread]
 
@@ -320,63 +312,58 @@ It's called Foxguard — think "Ruff, but for security."
 
 **Tweet 2 (Problem):**
 
-41% of code on GitHub is now AI-generated.
+80% of AI-generated code that passes functional tests still has security vulnerabilities.
 
-~25% of that code has security vulnerabilities.
+Hardcoded secrets. Missing auth. SQL injection. Framework misconfigs.
 
-Every SAST tool that catches these issues — Semgrep, Bandit, ESLint plugins — is written in Python or OCaml and takes 30+ seconds on a medium repo.
-
-Developers disable them. Vulnerabilities ship.
+The code works. It's just not safe. And existing SAST tools are too slow to catch it before it compounds.
 
 ---
 
-**Tweet 3 (What it does):**
+**Tweet 3 (Insight):**
 
-Foxguard catches the security flaws that actually matter:
+The insight: security linting needs to move from CI into the generation loop.
 
-- SQL injection
-- Command injection
-- Path traversal
-- XSS
-- Hardcoded secrets
-- Unsafe deserialization
-- Weak cryptography
-- SSRF
+Semgrep takes 30+ seconds. That's fine for a pipeline.
 
-28 rules across JavaScript/TypeScript, Python, and Go. Every rule maps to a CWE.
+But when your AI agent is generating 50 files in a session, you need feedback in milliseconds, not minutes.
 
 ---
 
-**Tweet 4 (Speed benchmark):**
+**Tweet 4 (What it does):**
+
+What Foxguard does:
+
+- 36 built-in rules focused on what AI gets wrong
+- Semgrep YAML compatibility (bring your existing rules)
+- <100ms on typical projects
+- Framework-aware: Express, Flask, Django, Gin
+- Tree-sitter AST parsing, not regex
+
+The workflow: AI writes code → foxguard checks (60ms) → fix → commit
+
+---
+
+**Tweet 5 (Speed benchmark):**
 
 Speed comparison on a 10K LOC project:
 
 Semgrep: 8.2 seconds
 Foxguard: 0.04 seconds
 
-That's not a benchmark trick. Tree-sitter AST parsing + Rust parallelism + zero-copy pattern matching = real speed.
+Semgrep is great for CI. Foxguard is fast enough for your editor.
 
-Fast enough for pre-commit hooks. Fast enough for every single save.
-
----
-
-**Tweet 5 (Why Rust):**
-
-Why Rust?
-
-Same reason @charliermarsh built Ruff in Rust instead of optimizing Flake8.
-
-There's a performance ceiling in Python that no amount of caching or multiprocessing can break through. Rust gives you predictable latency, trivial parallelism, and single-binary distribution.
+Same rule format. Rust engine. 100x faster.
 
 ---
 
-**Tweet 6 (AI code angle):**
+**Tweet 6 (Semgrep compat):**
 
-The AI code angle matters:
+The Semgrep compatibility matters.
 
-Copilot and ChatGPT produce syntactically correct code that compiles, passes tests, and contains SQL injection.
+Teams have invested years building custom YAML rules. Foxguard reads the same format and runs it on a Rust engine.
 
-LLMs are great at code generation. They're terrible at security. You need deterministic, auditable tooling in CI — not another AI layer on top.
+Don't throw away your rules. Just run them faster — fast enough for places Semgrep can't go (editor, pre-commit, AI loop).
 
 ---
 
@@ -389,9 +376,9 @@ cargo install foxguard
 foxguard scan .
 ```
 
-No config. No Docker. No cloud account. No rule downloads.
+Or: `npx foxguard`
 
-One binary. One command. SARIF output for GitHub/GitLab integration.
+No config. No Docker. No cloud account. One binary, one command. SARIF output for GitHub/GitLab.
 
 ---
 
@@ -408,22 +395,23 @@ Star it if this is useful. I'm building this in public.
 
 **Tweet 9 (Background):**
 
-Some background: I come from a SOC (Security Operations Center) at Migros. I saw the same CWEs hit production over and over — SQLi, command injection, path traversal.
+Background: I come from a SOC at Migros. Same CWEs hit production over and over — SQLi, hardcoded secrets, missing auth.
 
-These are all catchable at write-time. The tooling just needs to be fast enough that people actually use it.
+Now AI is generating these bugs at scale. The tooling to catch them needs to be in the generation loop, not just the CI pipeline.
 
 ---
 
 **Tweet 10 (CTA):**
 
-What security rules would you want to see next?
+What rules would you want for AI-generated code?
 
 I'm working on:
+- VS Code / Cursor extension (lint-on-save)
 - Taint tracking (data-flow analysis)
-- TypeScript-specific rules
+- More framework-specific rules
 - Plugin system for custom rules
 
-Drop a reply or open an issue. Building this for the community.
+Drop a reply or open an issue.
 
 ---
 

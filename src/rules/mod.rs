@@ -1,6 +1,7 @@
 pub mod go;
 pub mod javascript;
 pub mod python;
+pub mod semgrep_compat;
 
 use crate::{Finding, Language, Severity};
 
@@ -17,6 +18,12 @@ pub trait Rule: Send + Sync {
 /// Registry holding all available rules.
 pub struct RuleRegistry {
     rules: Vec<Box<dyn Rule>>,
+}
+
+impl Default for RuleRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RuleRegistry {

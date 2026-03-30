@@ -1,0 +1,95 @@
+use foxguard::engine::parser::parse_file;
+use foxguard::rules::semgrep_compat::{load_semgrep_rules, parse_semgrep_file};
+use foxguard::rules::Rule;
+use foxguard::Language;
+use std::path::Path;
+
+const RULES_DIR: &str = "tests/semgrep_rules";
+const FIXTURE: &str = "tests/fixtures/vulnerable.py";
+
+#[test]
+fn test_load_rules_from_directory() {
+    let rules = load_semgrep_rules(Path::new(RULES_DIR));
+    assert!(
+        rules.len() >= 3,
+        "Expected at least 3 rules, got {}",
+        rules.len()
+    );
+}
+
+#[test]
+fn test_hardcoded_secret_rule() {
+    let rules =
+        parse_semgrep_file(Path::new("tests/semgrep_rules/hardcoded-secret.yaml")).unwrap();
+    assert_eq!(rules.len(), 1);
+
+    let source = std::fs::read_to_string(FIXTURE).unwrap();
+    let tree = parse_file(&source, Language::Python).unwrap();
+    let findings = rules[0].check(&source, &tree);
+
+    assert!(
+        !findings.is_empty(),
+        "Should detect hardcoded password assignment"
+    );
+    // Should find `password = "supersecret123"` but not `api_key = "not_a_password"`
+    assert!(findings.iter().any(|f| f.snippet.contains("password")));
+}
+
+#[test]
+fn test_eval_usage_rule() {
+    let rules = parse_semgrep_file(Path::new("tests/semgrep_rules/eval-usage.yaml")).unwrap();
+    assert_eq!(rules.len(), 1);
+
+    let source = std::fs::read_to_string(FIXTURE).unwrap();
+    let tree = parse_file(&source, Language::Python).unwrap();
+    let findings = rules[0].check(&source, &tree);
+
+    assert!(
+        findings.len() >= 2,
+        "Should detect both eval() and exec(), got {} findings",
+        findings.len()
+    );
+}
+
+#[test]
+fn test_sql_injection_rule() {
+    let rules =
+        parse_semgrep_file(Path::new("tests/semgrep_rules/sql-injection.yaml")).unwrap();
+    assert_eq!(rules.len(), 1);
+
+    let source = std::fs::read_to_string(FIXTURE).unwrap();
+    let tree = parse_file(&source, Language::Python).unwrap();
+    let findings = rules[0].check(&source, &tree);
+
+    assert!(
+        !findings.is_empty(),
+        "Should detect SQL injection via string concatenation"
+    );
+}
+
+#[test]
+fn test_no_false_positives_on_safe_code() {
+    let rules =
+        parse_semgrep_file(Path::new("tests/semgrep_rules/hardcoded-secret.yaml")).unwrap();
+
+    let source = "username = get_from_env('PASSWORD')\nx = 42\n";
+    let tree = parse_file(source, Language::Python).unwrap();
+    let findings = rules[0].check(source, &tree);
+
+    assert!(
+        findings.is_empty(),
+        "Should not flag safe code, but got {} findings",
+        findings.len()
+    );
+}
+
+#[test]
+fn test_semgrep_rule_metadata() {
+    let rules =
+        parse_semgrep_file(Path::new("tests/semgrep_rules/hardcoded-secret.yaml")).unwrap();
+    let rule = &rules[0];
+
+    assert_eq!(rule.id(), "semgrep/hardcoded-secret");
+    assert_eq!(rule.cwe(), Some("CWE-798"));
+    assert_eq!(rule.language(), Language::Python);
+}

@@ -1,0 +1,731 @@
+use crate::engine::parser::parse_file;
+use crate::rules::Rule;
+use crate::{Finding, Language, Severity};
+use serde::Deserialize;
+use std::collections::HashMap;
+use std::path::Path;
+
+// ─── YAML Schema ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct SemgrepFile {
+    pub rules: Vec<SemgrepRuleYaml>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SemgrepRuleYaml {
+    pub id: String,
+    #[serde(default)]
+    pub pattern: Option<String>,
+    #[serde(default, rename = "pattern-either")]
+    pub pattern_either: Option<Vec<PatternEntry>>,
+    #[serde(default, rename = "pattern-not")]
+    pub pattern_not: Option<String>,
+    #[serde(default, rename = "pattern-inside")]
+    pub pattern_inside: Option<String>,
+    #[serde(default)]
+    pub patterns: Option<Vec<PatternClause>>,
+    pub message: String,
+    pub severity: SemgrepSeverity,
+    pub languages: Vec<String>,
+    #[serde(default)]
+    pub metadata: Option<SemgrepMetadata>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatternEntry {
+    pub pattern: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatternClause {
+    #[serde(default)]
+    pub pattern: Option<String>,
+    #[serde(default, rename = "pattern-not")]
+    pub pattern_not: Option<String>,
+    #[serde(default, rename = "pattern-inside")]
+    pub pattern_inside: Option<String>,
+    #[serde(default, rename = "pattern-either")]
+    pub pattern_either: Option<Vec<PatternEntry>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum SemgrepSeverity {
+    Error,
+    Warning,
+    Info,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SemgrepMetadata {
+    pub cwe: Option<CweValue>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum CweValue {
+    Single(String),
+    List(Vec<String>),
+}
+
+// ─── Compiled Rule ──────────────────────────────────────────────────────────
+
+/// A compiled Semgrep-compatible rule that implements the foxguard Rule trait.
+pub struct SemgrepRule {
+    pub id: String,
+    pub message: String,
+    pub severity: Severity,
+    pub lang: Language,
+    pub cwe: Option<String>,
+    pub matcher: PatternMatcher,
+}
+
+/// Represents the matching strategy for a rule.
+#[derive(Debug, Clone)]
+pub enum PatternMatcher {
+    /// Single pattern
+    Single(String),
+    /// Match any of these patterns (OR)
+    Either(Vec<String>),
+    /// Combine multiple clauses (AND): positives must all match, negatives must not
+    Combined {
+        positives: Vec<PatternMatcher>,
+        negatives: Vec<String>,
+        inside: Option<String>,
+    },
+}
+
+impl Rule for SemgrepRule {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn severity(&self) -> Severity {
+        self.severity
+    }
+    fn cwe(&self) -> Option<&str> {
+        self.cwe.as_deref()
+    }
+    fn description(&self) -> &str {
+        &self.message
+    }
+    fn language(&self) -> Language {
+        self.lang
+    }
+
+    fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        let root = tree.root_node();
+
+        // Collect all matching nodes
+        let matches = match_pattern_in_tree(&self.matcher, root, source, self.lang);
+
+        for matched_node_range in matches {
+            let (line, col, end_line, end_col, snippet) = matched_node_range;
+            findings.push(Finding {
+                rule_id: self.id.clone(),
+                severity: self.severity,
+                cwe: self.cwe.clone(),
+                description: self.message.clone(),
+                file: String::new(),
+                line,
+                column: col,
+                end_line,
+                end_column: end_col,
+                snippet,
+            });
+        }
+
+        findings
+    }
+}
+
+// ─── Pattern Matching Engine ────────────────────────────────────────────────
+
+type MatchResult = Vec<(usize, usize, usize, usize, String)>;
+
+fn match_pattern_in_tree(
+    matcher: &PatternMatcher,
+    root: tree_sitter::Node,
+    source: &str,
+    lang: Language,
+) -> MatchResult {
+    match matcher {
+        PatternMatcher::Single(pat) => match_single_pattern(pat, root, source, lang),
+        PatternMatcher::Either(pats) => {
+            let mut results = Vec::new();
+            for pat in pats {
+                results.extend(match_single_pattern(pat, root, source, lang));
+            }
+            // Deduplicate by line
+            results.sort_by_key(|r| (r.0, r.1));
+            results.dedup_by_key(|r| (r.0, r.1));
+            results
+        }
+        PatternMatcher::Combined {
+            positives,
+            negatives,
+            inside,
+        } => {
+            // If we have an inside pattern, only search within matching contexts
+            let search_roots = if let Some(inside_pat) = inside {
+                let inside_matches =
+                    match_single_pattern(inside_pat, root, source, lang);
+                inside_matches
+                    .iter()
+                    .map(|m| (m.0, m.1, m.2, m.3))
+                    .collect::<Vec<_>>()
+            } else {
+                vec![]
+            };
+
+            // Find all positive matches
+            let mut candidates: Option<Vec<(usize, usize, usize, usize, String)>> = None;
+            for pos in positives {
+                let matches = match_pattern_in_tree(pos, root, source, lang);
+                candidates = Some(match candidates {
+                    None => matches,
+                    Some(prev) => {
+                        // Intersection: keep only matches that appear at same locations
+                        prev.into_iter()
+                            .filter(|p| matches.iter().any(|m| m.0 == p.0 && m.1 == p.1))
+                            .collect()
+                    }
+                });
+            }
+
+            let mut results = candidates.unwrap_or_default();
+
+            // Filter out negative matches
+            for neg in negatives {
+                let neg_matches = match_single_pattern(neg, root, source, lang);
+                results.retain(|r| {
+                    !neg_matches
+                        .iter()
+                        .any(|n| n.0 == r.0 && n.1 == r.1)
+                });
+            }
+
+            // If inside constraint, filter to only matches within those ranges
+            if !search_roots.is_empty() {
+                results.retain(|r| {
+                    search_roots.iter().any(|sr| {
+                        r.0 >= sr.0 && r.2 <= sr.2
+                    })
+                });
+            }
+
+            results
+        }
+    }
+}
+
+/// Match a single pattern string against every node in the tree.
+fn match_single_pattern(
+    pattern: &str,
+    root: tree_sitter::Node,
+    source: &str,
+    lang: Language,
+) -> MatchResult {
+    let mut results = Vec::new();
+
+    // Parse the pattern as source code to get a pattern AST
+    let pattern_tree = match parse_file(pattern, lang) {
+        Some(t) => t,
+        None => return results,
+    };
+
+    let pat_root = pattern_tree.root_node();
+    // Find the first meaningful child of the pattern (skip module/program wrapper)
+    let pat_node = first_meaningful_node(pat_root, pattern);
+
+    if pat_node.is_none() {
+        return results;
+    }
+    let pat_node = pat_node.unwrap();
+
+    // Walk every node in the target tree and try matching
+    walk_and_match(root, source, pat_node, pattern, &mut results);
+
+    results
+}
+
+/// Skip wrapper nodes (module, program, expression_statement) to get the real pattern.
+fn first_meaningful_node<'a>(
+    node: tree_sitter::Node<'a>,
+    source: &str,
+) -> Option<tree_sitter::Node<'a>> {
+    let kind = node.kind();
+
+    // These are top-level wrappers that tree-sitter adds
+    if kind == "module"
+        || kind == "program"
+        || kind == "source_file"
+        || kind == "script"
+    {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if !child.is_extra() {
+                return first_meaningful_node(child, source);
+            }
+        }
+        return None;
+    }
+
+    // expression_statement wraps a bare expression
+    if kind == "expression_statement" {
+        if let Some(child) = node.child(0) {
+            return Some(child);
+        }
+    }
+
+    Some(node)
+}
+
+fn walk_and_match(
+    node: tree_sitter::Node,
+    source: &str,
+    pat_node: tree_sitter::Node,
+    pat_source: &str,
+    results: &mut MatchResult,
+) {
+    let mut bindings = HashMap::new();
+    if match_node(node, source, pat_node, pat_source, &mut bindings) {
+        let start = node.start_position();
+        let end = node.end_position();
+        let snippet = get_source_line(source, node.start_byte());
+        results.push((
+            start.row + 1,
+            start.column + 1,
+            end.row + 1,
+            end.column + 1,
+            snippet,
+        ));
+        // Don't recurse into children of a matched node to avoid duplicates
+        return;
+    }
+
+    // Recurse into children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        walk_and_match(child, source, pat_node, pat_source, results);
+    }
+}
+
+/// Try to match a pattern AST node against a target AST node.
+/// Returns true if they match, populating metavariable bindings.
+fn match_node(
+    target: tree_sitter::Node,
+    target_src: &str,
+    pattern: tree_sitter::Node,
+    pat_src: &str,
+    bindings: &mut HashMap<String, String>,
+) -> bool {
+    let pat_text = &pat_src[pattern.byte_range()];
+
+    // ── Metavariable: $X matches any node ──
+    if is_metavar(pat_text) {
+        let target_text = &target_src[target.byte_range()];
+        if let Some(existing) = bindings.get(pat_text) {
+            return existing == target_text;
+        }
+        bindings.insert(pat_text.to_string(), target_text.to_string());
+        return true;
+    }
+
+    // ── Ellipsis: ... matches anything ──
+    if pat_text.trim() == "..." {
+        return true;
+    }
+
+    // ── String literal "..." matches any string ──
+    if is_any_string_pattern(pat_text) && is_string_node(target, target_src) {
+        return true;
+    }
+
+    // ── Leaf nodes: compare text directly ──
+    if pattern.child_count() == 0 {
+        let target_text = &target_src[target.byte_range()];
+        return pat_text == target_text;
+    }
+
+    // ── Non-leaf: kinds must match (approximately) ──
+    // Be lenient: if kinds differ, we still try if the structure matches
+    if pattern.kind() != target.kind() {
+        // Allow some flexibility for expression wrappers
+        if pattern.child_count() == 1 {
+            if let Some(pc) = pattern.child(0) {
+                return match_node(target, target_src, pc, pat_src, bindings);
+            }
+        }
+        if target.child_count() == 1 {
+            if let Some(tc) = target.child(0) {
+                return match_node(tc, target_src, pattern, pat_src, bindings);
+            }
+        }
+        return false;
+    }
+
+    // ── Match children, handling ... ellipsis ──
+    let pat_children = named_children(pattern);
+    let target_children = named_children(target);
+
+    match_children_with_ellipsis(
+        &target_children,
+        target_src,
+        &pat_children,
+        pat_src,
+        bindings,
+    )
+}
+
+fn named_children(node: tree_sitter::Node) -> Vec<tree_sitter::Node> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor).collect()
+}
+
+/// Match pattern children against target children, handling `...` ellipsis.
+fn match_children_with_ellipsis(
+    target_children: &[tree_sitter::Node],
+    target_src: &str,
+    pat_children: &[tree_sitter::Node],
+    pat_src: &str,
+    bindings: &mut HashMap<String, String>,
+) -> bool {
+    if pat_children.is_empty() {
+        return true;
+    }
+
+    let mut ti = 0;
+    let mut pi = 0;
+
+    while pi < pat_children.len() {
+        let pat_child = pat_children[pi];
+        let pat_text = &pat_src[pat_child.byte_range()];
+
+        if pat_text.trim() == "..." {
+            // Ellipsis: skip zero or more target children
+            pi += 1;
+            if pi >= pat_children.len() {
+                // ... at the end matches everything remaining
+                return true;
+            }
+            // Try to find a target child that matches the next pattern child
+            let next_pat = pat_children[pi];
+            while ti < target_children.len() {
+                let mut sub_bindings = bindings.clone();
+                if match_node(
+                    target_children[ti],
+                    target_src,
+                    next_pat,
+                    pat_src,
+                    &mut sub_bindings,
+                ) {
+                    // Continue matching from here
+                    *bindings = sub_bindings;
+                    pi += 1;
+                    ti += 1;
+                    break;
+                }
+                ti += 1;
+            }
+            if ti > target_children.len() {
+                return false;
+            }
+        } else {
+            if ti >= target_children.len() {
+                return false;
+            }
+            if !match_node(
+                target_children[ti],
+                target_src,
+                pat_child,
+                pat_src,
+                bindings,
+            ) {
+                return false;
+            }
+            ti += 1;
+            pi += 1;
+        }
+    }
+
+    true
+}
+
+/// Check if text looks like a Semgrep metavariable: $VAR, $X, $DB, etc.
+fn is_metavar(text: &str) -> bool {
+    let t = text.trim();
+    t.starts_with('$')
+        && t.len() > 1
+        && t[1..].chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Check if the pattern text is the special "..." (match-any-string) string literal.
+fn is_any_string_pattern(text: &str) -> bool {
+    let t = text.trim();
+    t == "\"...\"" || t == "'...'"
+}
+
+/// Check if a target node is a string literal.
+fn is_string_node(node: tree_sitter::Node, _source: &str) -> bool {
+    matches!(
+        node.kind(),
+        "string" | "string_literal" | "interpreted_string_literal" | "raw_string_literal" | "template_string"
+    )
+}
+
+fn get_source_line(source: &str, byte_offset: usize) -> String {
+    let start = source[..byte_offset].rfind('\n').map_or(0, |p| p + 1);
+    let end = source[byte_offset..]
+        .find('\n')
+        .map_or(source.len(), |p| byte_offset + p);
+    source[start..end].to_string()
+}
+
+// ─── File Loading ───────────────────────────────────────────────────────────
+
+fn map_severity(s: &SemgrepSeverity) -> Severity {
+    match s {
+        SemgrepSeverity::Error => Severity::Critical,
+        SemgrepSeverity::Warning => Severity::High,
+        SemgrepSeverity::Info => Severity::Medium,
+    }
+}
+
+fn map_language(lang_str: &str) -> Option<Language> {
+    match lang_str.to_lowercase().as_str() {
+        "javascript" | "js" | "typescript" | "ts" | "jsx" | "tsx" => {
+            Some(Language::JavaScript)
+        }
+        "python" | "py" => Some(Language::Python),
+        "go" | "golang" => Some(Language::Go),
+        _ => None,
+    }
+}
+
+fn build_matcher(yaml: &SemgrepRuleYaml) -> PatternMatcher {
+    // Combined patterns (AND)
+    if let Some(ref clauses) = yaml.patterns {
+        let mut positives = Vec::new();
+        let mut negatives = Vec::new();
+        let mut inside = None;
+
+        for clause in clauses {
+            if let Some(ref p) = clause.pattern {
+                positives.push(PatternMatcher::Single(p.clone()));
+            }
+            if let Some(ref pn) = clause.pattern_not {
+                negatives.push(pn.clone());
+            }
+            if let Some(ref pi) = clause.pattern_inside {
+                inside = Some(pi.clone());
+            }
+            if let Some(ref pe) = clause.pattern_either {
+                let pats: Vec<String> = pe.iter().map(|e| e.pattern.clone()).collect();
+                positives.push(PatternMatcher::Either(pats));
+            }
+        }
+
+        return PatternMatcher::Combined {
+            positives,
+            negatives,
+            inside,
+        };
+    }
+
+    // pattern-either (OR)
+    if let Some(ref either) = yaml.pattern_either {
+        let pats: Vec<String> = either.iter().map(|e| e.pattern.clone()).collect();
+        return PatternMatcher::Either(pats);
+    }
+
+    // Single pattern (may have pattern-not / pattern-inside at top level)
+    if let Some(ref pat) = yaml.pattern {
+        if yaml.pattern_not.is_some() || yaml.pattern_inside.is_some() {
+            return PatternMatcher::Combined {
+                positives: vec![PatternMatcher::Single(pat.clone())],
+                negatives: yaml
+                    .pattern_not
+                    .iter()
+                    .cloned()
+                    .collect(),
+                inside: yaml.pattern_inside.clone(),
+            };
+        }
+        return PatternMatcher::Single(pat.clone());
+    }
+
+    // Fallback: empty matcher that matches nothing
+    PatternMatcher::Single(String::new())
+}
+
+fn extract_cwe(yaml: &SemgrepRuleYaml) -> Option<String> {
+    let meta = yaml.metadata.as_ref()?;
+    let cwe = meta.cwe.as_ref()?;
+    match cwe {
+        CweValue::Single(s) => Some(s.clone()),
+        CweValue::List(v) => v.first().cloned(),
+    }
+}
+
+/// Parse a single Semgrep YAML file into foxguard rules.
+pub fn parse_semgrep_file(path: &Path) -> Result<Vec<Box<dyn Rule>>, String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+
+    let semgrep_file: SemgrepFile = serde_yaml::from_str(&content)
+        .map_err(|e| format!("Failed to parse YAML {}: {}", path.display(), e))?;
+
+    let mut rules: Vec<Box<dyn Rule>> = Vec::new();
+
+    for yaml_rule in semgrep_file.rules {
+        let cwe = extract_cwe(&yaml_rule);
+        let severity = map_severity(&yaml_rule.severity);
+        let matcher = build_matcher(&yaml_rule);
+
+        for lang_str in &yaml_rule.languages {
+            if let Some(lang) = map_language(lang_str) {
+                rules.push(Box::new(SemgrepRule {
+                    id: format!("semgrep/{}", yaml_rule.id),
+                    message: yaml_rule.message.clone(),
+                    severity,
+                    lang,
+                    cwe: cwe.clone(),
+                    matcher: matcher.clone(),
+                }));
+            }
+        }
+    }
+
+    Ok(rules)
+}
+
+/// Load all Semgrep YAML rules from a file or directory (recursive).
+pub fn load_semgrep_rules(path: &Path) -> Vec<Box<dyn Rule>> {
+    let mut rules = Vec::new();
+
+    if path.is_file() {
+        match parse_semgrep_file(path) {
+            Ok(r) => rules.extend(r),
+            Err(e) => eprintln!("Warning: {}", e),
+        }
+    } else if path.is_dir() {
+        let walker = walkdir::WalkDir::new(path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_type().is_file()
+                    && matches!(
+                        e.path().extension().and_then(|s| s.to_str()),
+                        Some("yaml" | "yml")
+                    )
+            });
+
+        for entry in walker {
+            match parse_semgrep_file(entry.path()) {
+                Ok(r) => rules.extend(r),
+                Err(e) => eprintln!("Warning: {}", e),
+            }
+        }
+    }
+
+    rules
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn make_yaml(content: &str) -> NamedTempFile {
+        let mut f = NamedTempFile::new().unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+        f
+    }
+
+    #[test]
+    fn test_parse_simple_rule() {
+        let yaml = r#"
+rules:
+  - id: test-eval
+    pattern: eval(...)
+    message: Do not use eval
+    severity: ERROR
+    languages: [python]
+"#;
+        let f = make_yaml(yaml);
+        let rules = parse_semgrep_file(f.path()).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id(), "semgrep/test-eval");
+        assert_eq!(rules[0].severity(), Severity::Critical);
+    }
+
+    #[test]
+    fn test_parse_pattern_either() {
+        let yaml = r#"
+rules:
+  - id: dangerous-funcs
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+    message: Dangerous function
+    severity: WARNING
+    languages: [python]
+"#;
+        let f = make_yaml(yaml);
+        let rules = parse_semgrep_file(f.path()).unwrap();
+        assert_eq!(rules.len(), 1);
+    }
+
+    #[test]
+    fn test_metavar_detection() {
+        assert!(is_metavar("$VAR"));
+        assert!(is_metavar("$X"));
+        assert!(is_metavar("$DB_NAME"));
+        assert!(!is_metavar("$"));
+        assert!(!is_metavar("foo"));
+        assert!(!is_metavar("$foo.bar"));
+    }
+
+    #[test]
+    fn test_match_eval_pattern() {
+        let yaml = r#"
+rules:
+  - id: test-eval
+    pattern: eval(...)
+    message: No eval
+    severity: ERROR
+    languages: [python]
+"#;
+        let f = make_yaml(yaml);
+        let rules = parse_semgrep_file(f.path()).unwrap();
+
+        let source = "x = eval(user_input)\ny = safe_func()\n";
+        let tree = parse_file(source, Language::Python).unwrap();
+        let findings = rules[0].check(source, &tree);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].line, 1);
+    }
+
+    #[test]
+    fn test_match_hardcoded_string() {
+        let yaml = r#"
+rules:
+  - id: hardcoded-password
+    pattern: password = "..."
+    message: Hardcoded password
+    severity: WARNING
+    languages: [python]
+"#;
+        let f = make_yaml(yaml);
+        let rules = parse_semgrep_file(f.path()).unwrap();
+
+        let source = "password = \"supersecret\"\nusername = \"admin\"\n";
+        let tree = parse_file(source, Language::Python).unwrap();
+        let findings = rules[0].check(source, &tree);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].line, 1);
+    }
+}

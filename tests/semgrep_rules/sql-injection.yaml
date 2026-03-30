@@ -1,0 +1,8 @@
+rules:
+  - id: sql-injection
+    pattern: cursor.execute("..." + $VAR)
+    message: Possible SQL injection via string concatenation
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: "CWE-89"

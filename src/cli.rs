@@ -33,6 +33,10 @@ pub struct Cli {
     /// Minimum severity to report
     #[arg(short, long, value_enum)]
     pub severity: Option<SeverityFilter>,
+
+    /// Path to Semgrep YAML rule file or directory
+    #[arg(short, long)]
+    pub rules: Option<String>,
 }
 
 impl SeverityFilter {
