@@ -1,0 +1,171 @@
+#!/usr/bin/env node
+
+const { execFileSync, execSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
+const https = require("https");
+
+const VERSION = require("../package.json").version;
+const REPO = "peaktwilight/foxguard";
+
+// Platform mapping: [node os, node arch] -> GitHub release asset suffix
+const PLATFORM_MAP = {
+  "darwin-x64": "x86_64-apple-darwin",
+  "darwin-arm64": "aarch64-apple-darwin",
+  "linux-x64": "x86_64-unknown-linux-gnu",
+  "linux-arm64": "aarch64-unknown-linux-gnu",
+  "win32-x64": "x86_64-pc-windows-msvc",
+};
+
+function getPlatformKey() {
+  const key = `${os.platform()}-${os.arch()}`;
+  const target = PLATFORM_MAP[key];
+  if (!target) {
+    console.error(
+      `foxguard: unsupported platform ${key}. Supported: ${Object.keys(PLATFORM_MAP).join(", ")}`
+    );
+    process.exit(1);
+  }
+  return target;
+}
+
+function getCacheDir() {
+  // Cache in node_modules/.cache/foxguard/ (standard convention)
+  const nmCache = path.join(__dirname, "..", "node_modules", ".cache", "foxguard");
+  try {
+    fs.mkdirSync(nmCache, { recursive: true });
+    return nmCache;
+  } catch {
+    // Fallback to home directory
+    const home = path.join(os.homedir(), ".cache", "foxguard");
+    fs.mkdirSync(home, { recursive: true });
+    return home;
+  }
+}
+
+function getBinaryName() {
+  return os.platform() === "win32" ? "foxguard.exe" : "foxguard";
+}
+
+// Check if cargo-installed foxguard exists
+function findCargoInstall() {
+  try {
+    const cargoHome = process.env.CARGO_HOME || path.join(os.homedir(), ".cargo");
+    const cargoBin = path.join(cargoHome, "bin", getBinaryName());
+    if (fs.existsSync(cargoBin)) {
+      return cargoBin;
+    }
+  } catch {}
+
+  // Try PATH
+  try {
+    const which = os.platform() === "win32" ? "where" : "which";
+    const result = execSync(`${which} foxguard 2>/dev/null`, {
+      encoding: "utf8",
+    }).trim();
+    if (result && !result.includes("node_modules")) {
+      return result;
+    }
+  } catch {}
+
+  return null;
+}
+
+function download(url) {
+  return new Promise((resolve, reject) => {
+    const get = (u) => {
+      https
+        .get(u, { headers: { "User-Agent": "foxguard-npm" } }, (res) => {
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            get(res.headers.location);
+            return;
+          }
+          if (res.statusCode !== 200) {
+            reject(new Error(`HTTP ${res.statusCode} fetching ${u}`));
+            return;
+          }
+          const chunks = [];
+          res.on("data", (c) => chunks.push(c));
+          res.on("end", () => resolve(Buffer.concat(chunks)));
+          res.on("error", reject);
+        })
+        .on("error", reject);
+    };
+    get(url);
+  });
+}
+
+async function downloadBinary() {
+  const target = getPlatformKey();
+  const cacheDir = getCacheDir();
+  const cachedBin = path.join(cacheDir, getBinaryName());
+
+  // Check version marker
+  const versionFile = path.join(cacheDir, ".version");
+  if (fs.existsSync(cachedBin) && fs.existsSync(versionFile)) {
+    const cached = fs.readFileSync(versionFile, "utf8").trim();
+    if (cached === VERSION) {
+      return cachedBin;
+    }
+  }
+
+  const ext = os.platform() === "win32" ? ".zip" : ".tar.gz";
+  const assetName = `foxguard-v${VERSION}-${target}${ext}`;
+  const url = `https://github.com/${REPO}/releases/download/v${VERSION}/${assetName}`;
+
+  console.error(`foxguard: downloading v${VERSION} for ${target}...`);
+
+  try {
+    const data = await download(url);
+    const archivePath = path.join(cacheDir, assetName);
+    fs.writeFileSync(archivePath, data);
+
+    // Extract
+    if (ext === ".tar.gz") {
+      execSync(`tar -xzf "${archivePath}" -C "${cacheDir}"`, { stdio: "pipe" });
+    } else {
+      execSync(`unzip -o "${archivePath}" -d "${cacheDir}"`, { stdio: "pipe" });
+    }
+
+    // Clean up archive
+    fs.unlinkSync(archivePath);
+
+    // Make executable
+    if (os.platform() !== "win32") {
+      fs.chmodSync(cachedBin, 0o755);
+    }
+
+    // Write version marker
+    fs.writeFileSync(versionFile, VERSION);
+
+    return cachedBin;
+  } catch (err) {
+    console.error(`foxguard: failed to download binary — ${err.message}`);
+    console.error(`foxguard: you can install manually with: cargo install foxguard`);
+    process.exit(1);
+  }
+}
+
+async function main() {
+  // 1. Check for cargo-installed binary
+  const cargoBin = findCargoInstall();
+  if (cargoBin) {
+    try {
+      execFileSync(cargoBin, process.argv.slice(2), { stdio: "inherit" });
+      return;
+    } catch (e) {
+      process.exit(e.status || 1);
+    }
+  }
+
+  // 2. Download or use cached binary
+  const bin = await downloadBinary();
+  try {
+    execFileSync(bin, process.argv.slice(2), { stdio: "inherit" });
+  } catch (e) {
+    process.exit(e.status || 1);
+  }
+}
+
+main();

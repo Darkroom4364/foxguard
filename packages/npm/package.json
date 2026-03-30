@@ -1,0 +1,38 @@
+{
+  "name": "foxguard",
+  "version": "0.1.0",
+  "description": "Blazing fast security linter for modern codebases. The Ruff of security.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/peaktwilight/foxguard.git"
+  },
+  "homepage": "https://foxguard.dev",
+  "keywords": [
+    "security",
+    "linter",
+    "static-analysis",
+    "sast",
+    "vulnerability",
+    "scanner"
+  ],
+  "bin": {
+    "foxguard": "bin/foxguard"
+  },
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "engines": {
+    "node": ">=14"
+  }
+}
