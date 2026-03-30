@@ -400,7 +400,108 @@ impl Rule for NoWeakCrypto {
     }
 }
 
-// ─── Rule 5: no-ssrf ───────────────────────────────────────────────────────
+// ─── Rule 5: gin-no-trusted-proxies ────────────────────────────────────────
+
+pub struct GinNoTrustedProxies;
+
+impl Rule for GinNoTrustedProxies {
+    fn id(&self) -> &str {
+        "go/gin-no-trusted-proxies"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Medium
+    }
+    fn cwe(&self) -> Option<&str> {
+        Some("CWE-346")
+    }
+    fn description(&self) -> &str {
+        "Gin engine created without SetTrustedProxies configuration"
+    }
+    fn language(&self) -> Language {
+        Language::Go
+    }
+
+    fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        // Check if gin.Default() or gin.New() is called
+        let has_gin_init = source.contains("gin.Default()") || source.contains("gin.New()");
+        let has_trusted_proxies = source.contains("SetTrustedProxies");
+
+        if has_gin_init && !has_trusted_proxies {
+            walk_tree(tree.root_node(), source, &mut |node, src| {
+                if node.kind() == "call_expression" {
+                    if let Some(func) = node.child_by_field_name("function") {
+                        let func_text = &src[func.byte_range()];
+                        if func_text == "gin.Default" || func_text == "gin.New" {
+                            findings.push(make_finding(
+                                self.id(),
+                                self.severity(),
+                                self.cwe(),
+                                &format!(
+                                    "{}() called without SetTrustedProxies — configure trusted proxies to prevent IP spoofing",
+                                    func_text
+                                ),
+                                node,
+                                src,
+                            ));
+                        }
+                    }
+                }
+            });
+        }
+        findings
+    }
+}
+
+// ─── Rule 6: net-http-no-timeout ──────────────────────────────────────────
+
+pub struct NetHttpNoTimeout;
+
+impl Rule for NetHttpNoTimeout {
+    fn id(&self) -> &str {
+        "go/net-http-no-timeout"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Medium
+    }
+    fn cwe(&self) -> Option<&str> {
+        Some("CWE-400")
+    }
+    fn description(&self) -> &str {
+        "http.ListenAndServe without timeout configuration enables slowloris attacks"
+    }
+    fn language(&self) -> Language {
+        Language::Go
+    }
+
+    fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
+        let mut findings = Vec::new();
+
+        walk_tree(tree.root_node(), source, &mut |node, src| {
+            if node.kind() == "call_expression" {
+                if let Some(func) = node.child_by_field_name("function") {
+                    let func_text = &src[func.byte_range()];
+                    if func_text == "http.ListenAndServe" || func_text == "http.ListenAndServeTLS" {
+                        findings.push(make_finding(
+                            self.id(),
+                            self.severity(),
+                            self.cwe(),
+                            &format!(
+                                "{} used without timeout — use http.Server with ReadTimeout/WriteTimeout to prevent slowloris",
+                                func_text
+                            ),
+                            node,
+                            src,
+                        ));
+                    }
+                }
+            }
+        });
+        findings
+    }
+}
+
+// ─── Rule 7: no-ssrf ───────────────────────────────────────────────────────
 
 pub struct NoSsrf;
 

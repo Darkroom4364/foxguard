@@ -20,12 +20,12 @@ fn test_vulnerable_js_finds_all_rules() {
 
     assert_eq!(
         findings.len(),
-        13,
-        "vulnerable.js should have 13 findings, got {}",
+        18,
+        "vulnerable.js should have 18 findings, got {}",
         findings.len()
     );
 
-    // Verify all 12 unique rule IDs are present
+    // Verify all unique rule IDs are present
     let rule_ids: std::collections::HashSet<&str> = findings
         .iter()
         .filter_map(|f| f["rule_id"].as_str())
@@ -44,6 +44,10 @@ fn test_vulnerable_js_finds_all_rules() {
         "js/no-prototype-pollution",
         "js/no-unsafe-regex",
         "js/no-cors-star",
+        "js/express-no-hardcoded-session-secret",
+        "js/express-cookie-no-secure",
+        "js/express-cookie-no-httponly",
+        "js/express-direct-response-write",
     ];
 
     for rule in &expected_rules {
@@ -69,8 +73,8 @@ fn test_vulnerable_py_finds_all_rules() {
 
     assert_eq!(
         findings.len(),
-        13,
-        "vulnerable.py should have 13 findings, got {}",
+        17,
+        "vulnerable.py should have 17 findings, got {}",
         findings.len()
     );
 
@@ -91,6 +95,8 @@ fn test_vulnerable_py_finds_all_rules() {
         "py/no-debug-true",
         "py/no-open-redirect",
         "py/no-cors-star",
+        "py/flask-debug-mode",
+        "py/django-secret-key-hardcoded",
     ];
 
     for rule in &expected_rules {
@@ -116,8 +122,8 @@ fn test_vulnerable_go_finds_all_rules() {
 
     assert_eq!(
         findings.len(),
-        7,
-        "vulnerable.go should have 7 findings, got {}",
+        8,
+        "vulnerable.go should have 8 findings, got {}",
         findings.len()
     );
 
@@ -132,6 +138,7 @@ fn test_vulnerable_go_finds_all_rules() {
         "go/no-hardcoded-secret",
         "go/no-weak-crypto",
         "go/no-ssrf",
+        "go/net-http-no-timeout",
     ];
 
     for rule in &expected_rules {
@@ -204,11 +211,11 @@ fn test_severity_filter_high() {
     let findings: Vec<serde_json::Value> =
         serde_json::from_slice(&output.stdout).expect("invalid JSON output");
 
-    // High and Critical only — should be 9 (excludes 4 medium: open-redirect, weak-crypto, unsafe-regex, cors-star)
+    // High and Critical only
     assert_eq!(
         findings.len(),
-        9,
-        "high severity filter on vulnerable.js should yield 9 findings, got {}",
+        11,
+        "high severity filter on vulnerable.js should yield 11 findings, got {}",
         findings.len()
     );
 

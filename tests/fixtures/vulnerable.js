@@ -48,3 +48,17 @@ const re = /(a+)+$/;
 
 // 13. js/no-cors-star (Medium)
 const cors = { origin: "*" };
+
+// 14. js/express-no-hardcoded-session-secret (High)
+const sessionConfig = { secret: "keyboard-cat-secret" };
+
+// 15. js/express-cookie-no-secure (Medium)
+const cookieOpts = { cookie: { maxAge: 86400 } };
+
+// 16. js/express-cookie-no-httponly (Medium)
+const cookieOpts2 = { cookie: { secure: true } };
+
+// 17. js/express-direct-response-write (High)
+function handler(req, res) {
+  res.send(req.query.name);
+}

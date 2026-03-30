@@ -46,3 +46,9 @@ redirect(user_input)
 
 # 13. py/no-cors-star (Medium)
 CORS_ALLOW_ALL_ORIGINS = True
+
+# 14. py/flask-debug-mode (High)
+app.run(debug=True)
+
+# 15. py/django-secret-key-hardcoded (High)
+SECRET_KEY = "django-insecure-abc123def456"

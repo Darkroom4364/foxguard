@@ -14,6 +14,10 @@ const jsRules = [
   { id: 'js/no-prototype-pollution', cwe: 'CWE-1321', desc: 'Prototype pollution via object merge', severity: 'high' },
   { id: 'js/no-unsafe-regex', cwe: 'CWE-1333', desc: 'ReDoS-vulnerable regular expression', severity: 'medium' },
   { id: 'js/no-cors-star', cwe: 'CWE-942', desc: 'Permissive CORS policy (Access-Control-Allow-Origin: *)', severity: 'medium' },
+  { id: 'js/express-no-hardcoded-session-secret', cwe: 'CWE-798', desc: 'Hardcoded session secret in express-session config', severity: 'high' },
+  { id: 'js/express-cookie-no-secure', cwe: 'CWE-614', desc: 'Cookie config missing secure flag', severity: 'medium' },
+  { id: 'js/express-cookie-no-httponly', cwe: 'CWE-1004', desc: 'Cookie config missing httpOnly flag', severity: 'medium' },
+  { id: 'js/express-direct-response-write', cwe: 'CWE-79', desc: 'XSS via res.send/res.write with user input', severity: 'high' },
 ];
 
 const pyRules = [
@@ -28,6 +32,8 @@ const pyRules = [
   { id: 'py/no-debug-true', cwe: 'CWE-489', desc: 'DEBUG=True left enabled in production config', severity: 'medium' },
   { id: 'py/no-open-redirect', cwe: 'CWE-601', desc: 'Open redirect via user-controlled URL', severity: 'medium' },
   { id: 'py/no-cors-star', cwe: 'CWE-942', desc: 'Permissive CORS policy (CORS_ALLOW_ALL_ORIGINS)', severity: 'medium' },
+  { id: 'py/flask-debug-mode', cwe: 'CWE-489', desc: 'Flask app.run(debug=True) exposes debugger in production', severity: 'high' },
+  { id: 'py/django-secret-key-hardcoded', cwe: 'CWE-798', desc: 'Django SECRET_KEY hardcoded in source', severity: 'high' },
 ];
 
 const goRules = [
@@ -36,6 +42,8 @@ const goRules = [
   { id: 'go/no-hardcoded-secret', cwe: 'CWE-798', desc: 'Hardcoded secret or credential detected', severity: 'high' },
   { id: 'go/no-weak-crypto', cwe: 'CWE-327', desc: 'Use of weak cryptographic hash (MD5/SHA1)', severity: 'medium' },
   { id: 'go/no-ssrf', cwe: 'CWE-918', desc: 'SSRF via http.Get/http.Post with variable URL', severity: 'high' },
+  { id: 'go/gin-no-trusted-proxies', cwe: 'CWE-346', desc: 'Gin engine without SetTrustedProxies', severity: 'medium' },
+  { id: 'go/net-http-no-timeout', cwe: 'CWE-400', desc: 'http.ListenAndServe without timeout config', severity: 'medium' },
 ];
 
 const totalRules = jsRules.length + pyRules.length + goRules.length;
@@ -183,13 +191,13 @@ function severityColor(s: string) {
 
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { icon: '&#127760;', title: 'Multi-language', desc: 'JavaScript/TypeScript, Python, and Go. More languages coming soon.' },
-          { icon: '&#128737;', title: `${totalRules} security rules`, desc: 'Injection, XSS, secrets, crypto, SSRF, path traversal. All mapped to CWEs.' },
-          { icon: '&#128202;', title: 'SARIF output', desc: 'Native SARIF support for GitHub Code Scanning and CI integration.' },
-          { icon: '&#9889;', title: 'Zero config', desc: 'No config files, no setup. Just run foxguard . and go.' },
+          { icon: 'LANG', title: 'Multi-language', desc: 'JavaScript/TypeScript, Python, and Go. More languages coming soon.' },
+          { icon: 'RULES', title: `${totalRules} security rules`, desc: 'Injection, XSS, secrets, crypto, SSRF, path traversal. All mapped to CWEs.' },
+          { icon: 'SARIF', title: 'SARIF output', desc: 'Native SARIF support for GitHub Code Scanning and CI integration.' },
+          { icon: 'FAST', title: 'Zero config', desc: 'No config files, no setup. Just run foxguard . and go.' },
         ].map((f) => (
           <div class="group bg-night-light border border-night-lighter rounded-xl p-6 hover:border-fox/20 transition-colors">
-            <div class="text-2xl mb-3" set:html={f.icon} />
+            <div class="text-xs font-mono font-bold text-fox mb-3 tracking-wider">{f.icon}</div>
             <h3 class="text-white font-semibold mb-2">{f.title}</h3>
             <p class="text-sm text-ash leading-relaxed">{f.desc}</p>
           </div>

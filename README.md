@@ -28,12 +28,12 @@ foxguard .
 
 ## Features
 
-- 🦀 Written in Rust — scans 100K LOC in <2 seconds
-- 🔍 Multi-language — JS/TS, Python, Go (more coming)
-- 🎯 500+ security rules — injection, auth, crypto, secrets, SSRF, XSS
-- 🤖 AI-code-aware — catches patterns specific to AI-generated code
-- 📋 SARIF output — integrates with GitHub Code Scanning
-- ⚡ Zero config — works out of the box
+- Written in Rust -- scans 100K LOC in <2 seconds
+- Multi-language -- JS/TS, Python, Go (more coming)
+- 500+ security rules -- injection, auth, crypto, secrets, SSRF, XSS
+- AI-code-aware -- catches patterns specific to AI-generated code
+- SARIF output -- integrates with GitHub Code Scanning
+- Zero config -- works out of the box
 
 ## License
 

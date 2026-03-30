@@ -28,6 +28,9 @@ func vulnerable() {
 	// 6. go/no-ssrf (High)
 	http.Get(userInput)
 
+	// 7. go/net-http-no-timeout (Medium)
+	http.ListenAndServe(":8080", nil)
+
 	_ = query1
 	_ = query2
 	_ = apiKey

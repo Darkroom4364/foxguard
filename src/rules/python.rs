@@ -588,7 +588,7 @@ impl Rule for NoYamlLoad {
     }
 }
 
-// ─── Rule 9: no-debug-true ─────────────────────────────────────────────────
+// ─── Rule 9: no-debug-true (Django DEBUG = True) ──────────────────────────
 
 pub struct NoDebugTrue;
 
@@ -613,7 +613,7 @@ impl Rule for NoDebugTrue {
         let mut findings = Vec::new();
 
         walk_tree(tree.root_node(), source, &mut |node, src| {
-            // Detect: DEBUG = True
+            // Detect: DEBUG = True (Django settings pattern)
             if node.kind() == "assignment" {
                 if let (Some(left), Some(right)) = (
                     node.child_by_field_name("left"),
@@ -626,7 +626,7 @@ impl Rule for NoDebugTrue {
                             self.id(),
                             self.severity(),
                             self.cwe(),
-                            "DEBUG = True — ensure debug mode is disabled in production",
+                            "DEBUG = True — ensure debug mode is disabled in production (Django CWE-489)",
                             node,
                             src,
                         ));
@@ -634,7 +634,7 @@ impl Rule for NoDebugTrue {
                 }
             }
 
-            // Detect: app.run(debug=True) or similar
+            // Detect: app.run(debug=True) or similar (Flask pattern)
             if node.kind() == "keyword_argument" {
                 if let (Some(name), Some(value)) = (
                     node.child_by_field_name("name"),
@@ -651,6 +651,134 @@ impl Rule for NoDebugTrue {
                             node,
                             src,
                         ));
+                    }
+                }
+            }
+        });
+        findings
+    }
+}
+
+// ─── Rule 12: flask-debug-mode ────────────────────────────────────────────
+
+pub struct FlaskDebugMode;
+
+impl Rule for FlaskDebugMode {
+    fn id(&self) -> &str {
+        "py/flask-debug-mode"
+    }
+    fn severity(&self) -> Severity {
+        Severity::High
+    }
+    fn cwe(&self) -> Option<&str> {
+        Some("CWE-489")
+    }
+    fn description(&self) -> &str {
+        "Flask app.run(debug=True) exposes debugger and reloader in production"
+    }
+    fn language(&self) -> Language {
+        Language::Python
+    }
+
+    fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
+        let mut findings = Vec::new();
+
+        walk_tree(tree.root_node(), source, &mut |node, src| {
+            // Detect: app.run(debug=True) specifically as a call expression
+            if node.kind() == "call" {
+                if let Some(func) = node.child_by_field_name("function") {
+                    if func.kind() == "attribute" {
+                        if let Some(attr) = func.child_by_field_name("attribute") {
+                            if &src[attr.byte_range()] == "run" {
+                                if let Some(args) = node.child_by_field_name("arguments") {
+                                    let args_text = &src[args.byte_range()];
+                                    if args_text.contains("debug=True") || args_text.contains("debug = True") {
+                                        findings.push(make_finding(
+                                            self.id(),
+                                            self.severity(),
+                                            self.cwe(),
+                                            "Flask app.run(debug=True) — exposes Werkzeug debugger, disable in production",
+                                            node,
+                                            src,
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Detect: app.debug = True
+            if node.kind() == "assignment" {
+                if let (Some(left), Some(right)) = (
+                    node.child_by_field_name("left"),
+                    node.child_by_field_name("right"),
+                ) {
+                    let left_text = &src[left.byte_range()];
+                    let right_text = &src[right.byte_range()];
+                    if left_text.ends_with(".debug") && right_text == "True" {
+                        findings.push(make_finding(
+                            self.id(),
+                            self.severity(),
+                            self.cwe(),
+                            "app.debug = True — exposes debugger, disable in production",
+                            node,
+                            src,
+                        ));
+                    }
+                }
+            }
+        });
+        findings
+    }
+}
+
+// ─── Rule 13: django-secret-key-hardcoded ─────────────────────────────────
+
+pub struct DjangoSecretKeyHardcoded;
+
+impl Rule for DjangoSecretKeyHardcoded {
+    fn id(&self) -> &str {
+        "py/django-secret-key-hardcoded"
+    }
+    fn severity(&self) -> Severity {
+        Severity::High
+    }
+    fn cwe(&self) -> Option<&str> {
+        Some("CWE-798")
+    }
+    fn description(&self) -> &str {
+        "Django SECRET_KEY hardcoded in source code"
+    }
+    fn language(&self) -> Language {
+        Language::Python
+    }
+
+    fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
+        let mut findings = Vec::new();
+
+        walk_tree(tree.root_node(), source, &mut |node, src| {
+            // Detect: SECRET_KEY = "some-literal-string"
+            if node.kind() == "assignment" {
+                if let (Some(left), Some(right)) = (
+                    node.child_by_field_name("left"),
+                    node.child_by_field_name("right"),
+                ) {
+                    let left_text = &src[left.byte_range()];
+                    if left_text == "SECRET_KEY" && right.kind() == "string" {
+                        let val = &src[right.byte_range()];
+                        let inner = val.trim_matches(|c| c == '"' || c == '\'');
+                        if inner.len() >= 4 {
+                            findings.push(make_finding(
+                                self.id(),
+                                self.severity(),
+                                self.cwe(),
+                                "Django SECRET_KEY is hardcoded — use an environment variable or secrets manager",
+                                node,
+                                src,
+                            ));
+                        }
                     }
                 }
             }

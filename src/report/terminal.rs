@@ -65,7 +65,7 @@ pub fn print_findings(findings: &[Finding]) {
 
     println!(
         "\n{} {} found: {} critical, {} high, {} medium, {} low",
-        "⚠".yellow(),
+        "WARNING".yellow(),
         format!("{} issues", findings.len()).bold(),
         critical.to_string().red().bold(),
         high.to_string().red(),

@@ -314,7 +314,7 @@ It's called Foxguard — think "Ruff, but for security."
 
 28 rules. 3 languages. MIT licensed. Here's why I built it:
 
-🧵
+[thread]
 
 ---
 

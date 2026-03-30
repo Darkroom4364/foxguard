@@ -744,7 +744,228 @@ impl Rule for NoUnsafeRegex {
     }
 }
 
-// ─── Rule 12: no-cors-star ─────────────────────────────────────────────────
+// ─── Rule 12: express-no-hardcoded-session-secret ─────────────────────────
+
+pub struct ExpressNoHardcodedSessionSecret;
+
+impl Rule for ExpressNoHardcodedSessionSecret {
+    fn id(&self) -> &str {
+        "js/express-no-hardcoded-session-secret"
+    }
+    fn severity(&self) -> Severity {
+        Severity::High
+    }
+    fn cwe(&self) -> Option<&str> {
+        Some("CWE-798")
+    }
+    fn description(&self) -> &str {
+        "Hardcoded session secret in express-session configuration"
+    }
+    fn language(&self) -> Language {
+        Language::JavaScript
+    }
+
+    fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        walk_tree(tree.root_node(), source, &mut |node, src| {
+            // Detect: session({ secret: "literal" }) — look for a pair with key "secret"
+            // inside a call to session()
+            if node.kind() == "pair" {
+                if let (Some(key), Some(value)) = (
+                    node.child_by_field_name("key"),
+                    node.child_by_field_name("value"),
+                ) {
+                    let key_text = &src[key.byte_range()];
+                    let key_inner = key_text.trim_matches(|c| c == '"' || c == '\'');
+                    if key_inner == "secret" && value.kind() == "string" {
+                        // Check the context: is this inside a call_expression that looks like session()?
+                        // Walk up to check if we're in an arguments > object > call_expression chain
+                        let val = &src[value.byte_range()];
+                        let inner = val.trim_matches(|c| c == '"' || c == '\'');
+                        if inner.len() >= 4 {
+                            findings.push(make_finding(
+                                self.id(),
+                                self.severity(),
+                                self.cwe(),
+                                "Hardcoded session secret — use an environment variable instead",
+                                node,
+                                src,
+                            ));
+                        }
+                    }
+                }
+            }
+        });
+        findings
+    }
+}
+
+// ─── Rule 13: express-cookie-no-secure ────────────────────────────────────
+
+pub struct ExpressCookieNoSecure;
+
+impl Rule for ExpressCookieNoSecure {
+    fn id(&self) -> &str {
+        "js/express-cookie-no-secure"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Medium
+    }
+    fn cwe(&self) -> Option<&str> {
+        Some("CWE-614")
+    }
+    fn description(&self) -> &str {
+        "Cookie configuration missing secure flag"
+    }
+    fn language(&self) -> Language {
+        Language::JavaScript
+    }
+
+    fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        walk_tree(tree.root_node(), source, &mut |node, src| {
+            // Look for object literals with a "cookie" key whose value is an object
+            // that does NOT contain secure: true
+            if node.kind() == "pair" {
+                if let (Some(key), Some(value)) = (
+                    node.child_by_field_name("key"),
+                    node.child_by_field_name("value"),
+                ) {
+                    let key_text = &src[key.byte_range()];
+                    let key_inner = key_text.trim_matches(|c| c == '"' || c == '\'');
+                    if key_inner == "cookie" && value.kind() == "object" {
+                        let obj_text = &src[value.byte_range()];
+                        if !obj_text.contains("secure") || obj_text.contains("secure: false") || obj_text.contains("secure:false") {
+                            findings.push(make_finding(
+                                self.id(),
+                                self.severity(),
+                                self.cwe(),
+                                "Cookie configuration missing 'secure: true' — cookies may be sent over HTTP",
+                                node,
+                                src,
+                            ));
+                        }
+                    }
+                }
+            }
+        });
+        findings
+    }
+}
+
+// ─── Rule 14: express-cookie-no-httponly ───────────────────────────────────
+
+pub struct ExpressCookieNoHttpOnly;
+
+impl Rule for ExpressCookieNoHttpOnly {
+    fn id(&self) -> &str {
+        "js/express-cookie-no-httponly"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Medium
+    }
+    fn cwe(&self) -> Option<&str> {
+        Some("CWE-1004")
+    }
+    fn description(&self) -> &str {
+        "Cookie configuration missing httpOnly flag"
+    }
+    fn language(&self) -> Language {
+        Language::JavaScript
+    }
+
+    fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        walk_tree(tree.root_node(), source, &mut |node, src| {
+            if node.kind() == "pair" {
+                if let (Some(key), Some(value)) = (
+                    node.child_by_field_name("key"),
+                    node.child_by_field_name("value"),
+                ) {
+                    let key_text = &src[key.byte_range()];
+                    let key_inner = key_text.trim_matches(|c| c == '"' || c == '\'');
+                    if key_inner == "cookie" && value.kind() == "object" {
+                        let obj_text = &src[value.byte_range()];
+                        if !obj_text.contains("httpOnly") || obj_text.contains("httpOnly: false") || obj_text.contains("httpOnly:false") {
+                            findings.push(make_finding(
+                                self.id(),
+                                self.severity(),
+                                self.cwe(),
+                                "Cookie configuration missing 'httpOnly: true' — cookies accessible to JavaScript",
+                                node,
+                                src,
+                            ));
+                        }
+                    }
+                }
+            }
+        });
+        findings
+    }
+}
+
+// ─── Rule 15: express-direct-response-write ───────────────────────────────
+
+pub struct ExpressDirectResponseWrite;
+
+impl Rule for ExpressDirectResponseWrite {
+    fn id(&self) -> &str {
+        "js/express-direct-response-write"
+    }
+    fn severity(&self) -> Severity {
+        Severity::High
+    }
+    fn cwe(&self) -> Option<&str> {
+        Some("CWE-79")
+    }
+    fn description(&self) -> &str {
+        "XSS via direct response write with user input"
+    }
+    fn language(&self) -> Language {
+        Language::JavaScript
+    }
+
+    fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        let user_input_pattern = Regex::new(
+            r"req\.(params|query|body|headers)"
+        ).unwrap();
+
+        walk_tree(tree.root_node(), source, &mut |node, src| {
+            // Detect: res.send(req.query.foo), res.write(req.body.bar)
+            if node.kind() == "call_expression" {
+                if let Some(func) = node.child_by_field_name("function") {
+                    if func.kind() == "member_expression" {
+                        if let Some(prop) = func.child_by_field_name("property") {
+                            let prop_text = &src[prop.byte_range()];
+                            if prop_text == "send" || prop_text == "write" || prop_text == "end" {
+                                if let Some(args) = node.child_by_field_name("arguments") {
+                                    let args_text = &src[args.byte_range()];
+                                    if user_input_pattern.is_match(args_text) {
+                                        findings.push(make_finding(
+                                            self.id(),
+                                            self.severity(),
+                                            self.cwe(),
+                                            &format!(
+                                                "res.{}() called with user input — risk of reflected XSS, sanitize before sending",
+                                                prop_text
+                                            ),
+                                            node,
+                                            src,
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        findings
+    }
+}
+
+// ─── Rule 16: no-cors-star ─────────────────────────────────────────────────
 
 pub struct NoCorsStar;
 
