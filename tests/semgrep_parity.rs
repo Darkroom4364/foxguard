@@ -155,18 +155,18 @@ fn assert_parity(repo: &Path, rules_path: &Path, scan_target: &str) {
     assert_eq!(foxguard, semgrep, "foxguard and semgrep results diverged");
 }
 
-fn skip_if_semgrep_missing() -> bool {
+fn skip_if_semgrep_missing(test_name: &str) -> bool {
     if semgrep_available() {
         return false;
     }
 
-    eprintln!("semgrep not installed; skipping parity test");
+    eprintln!("WARNING: semgrep not installed, parity test SKIPPED: {test_name}");
     true
 }
 
 #[test]
 fn test_parity_pattern_either() {
-    if skip_if_semgrep_missing() {
+    if skip_if_semgrep_missing("test_parity_pattern_either") {
         return;
     }
 
@@ -196,7 +196,7 @@ rules:
 
 #[test]
 fn test_parity_binary_operator_and_metavariable_regex() {
-    if skip_if_semgrep_missing() {
+    if skip_if_semgrep_missing("test_parity_binary_operator_and_metavariable_regex") {
         return;
     }
 
@@ -228,7 +228,7 @@ rules:
 
 #[test]
 fn test_parity_pattern_inside() {
-    if skip_if_semgrep_missing() {
+    if skip_if_semgrep_missing("test_parity_pattern_inside") {
         return;
     }
 
@@ -260,7 +260,7 @@ rules:
 
 #[test]
 fn test_parity_pattern_not_inside() {
-    if skip_if_semgrep_missing() {
+    if skip_if_semgrep_missing("test_parity_pattern_not_inside") {
         return;
     }
 
@@ -292,7 +292,7 @@ rules:
 
 #[test]
 fn test_parity_pattern_regex_and_not_regex() {
-    if skip_if_semgrep_missing() {
+    if skip_if_semgrep_missing("test_parity_pattern_regex_and_not_regex") {
         return;
     }
 
@@ -321,7 +321,7 @@ rules:
 
 #[test]
 fn test_parity_paths_include_exclude() {
-    if skip_if_semgrep_missing() {
+    if skip_if_semgrep_missing("test_parity_paths_include_exclude") {
         return;
     }
 
