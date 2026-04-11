@@ -712,7 +712,6 @@ fn is_string_node(node: tree_sitter::Node, _source: &str) -> bool {
     )
 }
 
-
 fn byte_offset_to_position(source: &str, byte_offset: usize) -> (usize, usize) {
     let prefix = &source[..byte_offset];
     let line = prefix.bytes().filter(|b| *b == b'\n').count() + 1;

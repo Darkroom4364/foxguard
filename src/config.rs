@@ -97,8 +97,8 @@ pub fn apply_scan_defaults(scan: &mut ScanArgs, config: Option<&FoxguardConfig>)
     if scan.baseline.is_none() {
         scan.baseline = config.scan.baseline.clone();
     }
-    if let Some(max_file_size) = config.scan.max_file_size {
-        scan.max_file_size = max_file_size;
+    if scan.max_file_size.is_none() {
+        scan.max_file_size = config.scan.max_file_size;
     }
 }
 
@@ -117,8 +117,8 @@ pub fn apply_secrets_defaults(args: &mut SecretsArgs, config: Option<&FoxguardCo
         .extend(config.secrets.exclude_paths.clone());
     args.ignored_rules
         .extend(config.secrets.ignored_rules.clone());
-    if let Some(max_file_size) = config.secrets.max_file_size {
-        args.max_file_size = max_file_size;
+    if args.max_file_size.is_none() {
+        args.max_file_size = config.secrets.max_file_size;
     }
 }
 

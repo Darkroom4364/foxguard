@@ -206,15 +206,24 @@ pub fn scan_paths_with_config(
             continue;
         }
 
-        // Skip files exceeding the size limit
-        if let Ok(metadata) = std::fs::metadata(path) {
-            let size = metadata.len();
-            if size > max_file_size {
+        // Skip files exceeding the size limit (fail closed on metadata error)
+        match std::fs::metadata(path) {
+            Ok(metadata) => {
+                let size = metadata.len();
+                if size > max_file_size {
+                    eprintln!(
+                        "warning: skipping {} ({} bytes exceeds {} byte limit)",
+                        path.display(),
+                        size,
+                        max_file_size
+                    );
+                    continue;
+                }
+            }
+            Err(_) => {
                 eprintln!(
-                    "warning: skipping {} ({} bytes exceeds {} byte limit)",
-                    path.display(),
-                    size,
-                    max_file_size
+                    "warning: skipping {} (cannot read file metadata)",
+                    path.display()
                 );
                 continue;
             }
