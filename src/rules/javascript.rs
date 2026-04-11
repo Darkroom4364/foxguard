@@ -3,6 +3,31 @@ use crate::rules::{FileContext, Rule};
 use crate::{Finding, Language, Severity};
 #[allow(unused_imports)]
 use regex::Regex;
+use std::sync::LazyLock;
+
+static SECRET_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(password|secret|api_?key|token|auth|credential|private_?key)").unwrap()
+});
+
+static SQL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)(SELECT\s+.{0,40}\s+FROM|INSERT\s+INTO|UPDATE\s+.{0,40}\s+SET|DELETE\s+FROM|DROP\s+TABLE|ALTER\s+TABLE|CREATE\s+TABLE|EXEC\s+)",
+    )
+    .unwrap()
+});
+
+static REDOS_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(\([^)]*[+*][^)]*\)[+*]|\([^)]*\|[^)]*\)[+*])").unwrap());
+
+static USER_INPUT_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^req\.(params|query|body|headers)(\b|\[|\.)").unwrap());
+
+static SANITIZE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)(escapeHtml|escape|sanitize|encode|encodeURIComponent|encodeURI|htmlEncode|xss|purify|DOMPurify|validator|parseInt|parseFloat|Number|String)\s*\(",
+    )
+    .unwrap()
+});
 
 // ─── Rule 1: no-eval ─────────────────────────────────────────────────────────
 
@@ -72,10 +97,6 @@ impl Rule for NoHardcodedSecret {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let secret_pattern =
-            Regex::new(r"(?i)(password|secret|api_?key|token|auth|credential|private_?key)")
-                .unwrap();
-
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // variable_declarator: const password = "hardcoded"
             if node.kind() == "variable_declarator" {
@@ -85,7 +106,7 @@ impl Rule for NoHardcodedSecret {
                 ) {
                     let name = &src[name_node.byte_range()];
                     let value_kind = value_node.kind();
-                    if secret_pattern.is_match(name)
+                    if SECRET_PATTERN.is_match(name)
                         && (value_kind == "string" || value_kind == "template_string")
                     {
                         let val = &src[value_node.byte_range()];
@@ -116,7 +137,7 @@ impl Rule for NoHardcodedSecret {
                 ) {
                     let left_text = &src[left.byte_range()];
                     let right_kind = right.kind();
-                    if secret_pattern.is_match(left_text)
+                    if SECRET_PATTERN.is_match(left_text)
                         && (right_kind == "string" || right_kind == "template_string")
                     {
                         let val = &src[right.byte_range()];
@@ -167,10 +188,6 @@ impl Rule for NoSqlInjection {
         let mut findings = Vec::new();
         // Require SQL keyword followed by SQL structure (FROM, INTO, SET, WHERE, TABLE, VALUES)
         // This avoids matching plain English like res.send('delete ' + name)
-        let sql_pattern = Regex::new(
-            r"(?i)(SELECT\s+.{0,40}\s+FROM|INSERT\s+INTO|UPDATE\s+.{0,40}\s+SET|DELETE\s+FROM|DROP\s+TABLE|ALTER\s+TABLE|CREATE\s+TABLE|EXEC\s+)"
-        ).unwrap();
-
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // Detect: query("SELECT * FROM users WHERE id = " + userId)
             if node.kind() == "binary_expression" {
@@ -179,7 +196,7 @@ impl Rule for NoSqlInjection {
                         if let Some(left) = node.child_by_field_name("left") {
                             let left_text = &src[left.byte_range()];
                             if (left.kind() == "string" || left.kind() == "template_string")
-                                && sql_pattern.is_match(left_text)
+                                && SQL_PATTERN.is_match(left_text)
                             {
                                 findings.push(make_finding(
                                     self.id(),
@@ -198,7 +215,7 @@ impl Rule for NoSqlInjection {
             // Detect template literals with SQL: `SELECT * FROM users WHERE id = ${id}`
             if node.kind() == "template_string" {
                 let text = &src[node.byte_range()];
-                if sql_pattern.is_match(text) {
+                if SQL_PATTERN.is_match(text) {
                     // Check it has interpolation
                     let mut cursor = node.walk();
                     let has_substitution = node
@@ -798,14 +815,11 @@ impl Rule for NoUnsafeRegex {
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
         // Patterns known to cause catastrophic backtracking: nested quantifiers
-        let dangerous_pattern =
-            Regex::new(r"(\([^)]*[+*][^)]*\)[+*]|\([^)]*\|[^)]*\)[+*])").unwrap();
-
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // Detect regex literals: /pattern/
             if node.kind() == "regex" {
                 let regex_text = &src[node.byte_range()];
-                if dangerous_pattern.is_match(regex_text) {
+                if REDOS_PATTERN.is_match(regex_text) {
                     findings.push(make_finding(
                         self.id(),
                         self.severity(),
@@ -826,7 +840,7 @@ impl Rule for NoUnsafeRegex {
                             if let Some(first_arg) = args.named_child(0) {
                                 if first_arg.kind() == "string" {
                                     let pattern_text = &src[first_arg.byte_range()];
-                                    if dangerous_pattern.is_match(pattern_text) {
+                                    if REDOS_PATTERN.is_match(pattern_text) {
                                         findings.push(make_finding(
                                             self.id(),
                                             self.severity(),
@@ -1201,12 +1215,6 @@ impl Rule for ExpressDirectResponseWrite {
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
         // Match user-controlled input objects
-        let user_input_re = Regex::new(r"^req\.(params|query|body|headers)(\b|\[|\.)").unwrap();
-        // Sanitization wrappers that neutralise XSS risk
-        let sanitize_re = Regex::new(
-            r"(?i)(escapeHtml|escape|sanitize|encode|encodeURIComponent|encodeURI|htmlEncode|xss|purify|DOMPurify|validator|parseInt|parseFloat|Number|String)\s*\("
-        ).unwrap();
-
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // Detect: res.send(req.query.foo), res.write(req.body.bar)
             if node.kind() == "call_expression" {
@@ -1225,7 +1233,7 @@ impl Rule for ExpressDirectResponseWrite {
                                 if let Some(args) = node.child_by_field_name("arguments") {
                                     let args_text = &src[args.byte_range()];
                                     // Skip if any sanitization wrapper is present
-                                    if sanitize_re.is_match(args_text) {
+                                    if SANITIZE_PATTERN.is_match(args_text) {
                                         return;
                                     }
                                     // Check each direct argument for user input
@@ -1248,7 +1256,7 @@ impl Rule for ExpressDirectResponseWrite {
                                             continue;
                                         }
                                         let arg_text = &src[arg.byte_range()];
-                                        if user_input_re.is_match(arg_text.trim()) {
+                                        if USER_INPUT_PATTERN.is_match(arg_text.trim()) {
                                             findings.push(make_finding(
                                                 self.id(),
                                                 self.severity(),

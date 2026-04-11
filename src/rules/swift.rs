@@ -2,6 +2,41 @@ use crate::rules::common::{make_finding, make_finding_from_offsets, walk_tree};
 use crate::rules::Rule;
 use crate::{Finding, Language, Severity};
 use regex::Regex;
+use std::sync::LazyLock;
+
+static SECRET_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(password|secret|api_?key|token|auth|credential|private_?key)").unwrap()
+});
+
+static WEAK_HASH_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(CC_MD5|CC_SHA1|\.md5|\.sha1|Insecure\.MD5|Insecure\.SHA1)\b").unwrap()
+});
+
+static SQL_KEYWORDS_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\s").unwrap());
+
+static INTERP_STRING_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#""[^"]*\\\([^)]+\)[^"]*""#).unwrap());
+
+static SQL_CONCAT_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?i)(execute|prepare|sqlite3_exec)\s*\([^)]*(?:SELECT|INSERT|UPDATE|DELETE|DROP)[^)]*\+\s*"#,
+    )
+    .unwrap()
+});
+
+static KEYCHAIN_ACCESSIBLE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(kSecAttrAccessibleAlways|kSecAttrAccessibleAlwaysThisDeviceOnly)\b").unwrap()
+});
+
+static TLS_EXPIRED_CERTS_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"allowsExpiredCertificates\s*=\s*true").unwrap());
+
+static TLS_EXPIRED_ROOTS_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"allowsExpiredRoots\s*=\s*true").unwrap());
+
+static TLS_DISABLE_EVAL_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\.disableEvaluation").unwrap());
 
 // ─── Rule 1: no-hardcoded-secret ────────────────────────────────────────────
 
@@ -27,10 +62,6 @@ impl Rule for NoHardcodedSecret {
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
         let mut reported_lines = std::collections::HashSet::new();
-        let secret_pattern =
-            Regex::new(r"(?i)(password|secret|api_?key|token|auth|credential|private_?key)")
-                .unwrap();
-
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // Match property declarations: let password = "hardcoded"
             // or var apiKey = "secret123"
@@ -38,7 +69,7 @@ impl Rule for NoHardcodedSecret {
                 // Check if the name portion matches a secret pattern
                 if let Some(name_node) = node.child_by_field_name("name") {
                     let name = &src[name_node.byte_range()];
-                    if secret_pattern.is_match(name) {
+                    if SECRET_PATTERN.is_match(name) {
                         // Walk children looking for a string_literal value
                         let mut has_string_value = false;
                         let mut string_val = String::new();
@@ -76,7 +107,7 @@ impl Rule for NoHardcodedSecret {
             // that may parse differently
             if node.kind() == "value_binding_pattern" || node.kind() == "pattern" {
                 let name = &src[node.byte_range()];
-                if secret_pattern.is_match(name) {
+                if SECRET_PATTERN.is_match(name) {
                     if let Some(parent) = node.parent() {
                         let line = parent.start_position().row;
                         if reported_lines.contains(&line) {
@@ -196,10 +227,7 @@ impl Rule for NoWeakCrypto {
 
     fn check(&self, source: &str, _tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let pattern =
-            Regex::new(r"\b(CC_MD5|CC_SHA1|\.md5|\.sha1|Insecure\.MD5|Insecure\.SHA1)\b").unwrap();
-
-        for matched in pattern.find_iter(source) {
+        for matched in WEAK_HASH_PATTERN.find_iter(source) {
             let algo = if matched.as_str().contains("MD5") || matched.as_str().contains("md5") {
                 "MD5"
             } else {
@@ -340,14 +368,10 @@ impl Rule for NoSqlInjection {
 
     fn check(&self, source: &str, _tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let sql_keywords =
-            Regex::new(r"(?i)(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\s").unwrap();
-
         // Detect SQL strings with interpolation: "SELECT ... \(variable) ..."
-        let interp_string = Regex::new(r#""[^"]*\\\([^)]+\)[^"]*""#).unwrap();
-        for matched in interp_string.find_iter(source) {
+        for matched in INTERP_STRING_PATTERN.find_iter(source) {
             let text = matched.as_str();
-            if sql_keywords.is_match(text) {
+            if SQL_KEYWORDS_PATTERN.is_match(text) {
                 findings.push(make_finding_from_offsets(
                     self.id(),
                     self.severity(),
@@ -361,11 +385,7 @@ impl Rule for NoSqlInjection {
         }
 
         // Detect execute/prepare calls with string concatenation
-        let sql_concat = Regex::new(
-            r#"(?i)(execute|prepare|sqlite3_exec)\s*\([^)]*(?:SELECT|INSERT|UPDATE|DELETE|DROP)[^)]*\+\s*"#,
-        )
-        .unwrap();
-        for matched in sql_concat.find_iter(source) {
+        for matched in SQL_CONCAT_PATTERN.find_iter(source) {
             findings.push(make_finding_from_offsets(
                 self.id(),
                 self.severity(),
@@ -404,11 +424,7 @@ impl Rule for NoInsecureKeychain {
 
     fn check(&self, source: &str, _tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let pattern =
-            Regex::new(r"\b(kSecAttrAccessibleAlways|kSecAttrAccessibleAlwaysThisDeviceOnly)\b")
-                .unwrap();
-
-        for matched in pattern.find_iter(source) {
+        for matched in KEYCHAIN_ACCESSIBLE_PATTERN.find_iter(source) {
             findings.push(make_finding_from_offsets(
                 self.id(),
                 self.severity(),
@@ -450,22 +466,22 @@ impl Rule for NoTlsDisabled {
     fn check(&self, source: &str, _tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        let patterns = [
+        let patterns: &[(&LazyLock<Regex>, &str)] = &[
             (
-                Regex::new(r"allowsExpiredCertificates\s*=\s*true").unwrap(),
+                &TLS_EXPIRED_CERTS_PATTERN,
                 "allowsExpiredCertificates = true disables certificate expiry validation",
             ),
             (
-                Regex::new(r"allowsExpiredRoots\s*=\s*true").unwrap(),
+                &TLS_EXPIRED_ROOTS_PATTERN,
                 "allowsExpiredRoots = true disables root certificate expiry validation",
             ),
             (
-                Regex::new(r"\.disableEvaluation").unwrap(),
+                &TLS_DISABLE_EVAL_PATTERN,
                 ".disableEvaluation disables TLS server trust evaluation entirely",
             ),
         ];
 
-        for (pattern, msg) in &patterns {
+        for (pattern, msg) in patterns {
             for matched in pattern.find_iter(source) {
                 findings.push(make_finding_from_offsets(
                     self.id(),

@@ -2,6 +2,13 @@ use crate::rules::common::{make_finding, walk_tree};
 use crate::rules::Rule;
 use crate::{Finding, Language, Severity};
 use regex::Regex;
+use std::sync::LazyLock;
+
+static SECRET_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)(password|secret|api_?key|token)").unwrap());
+
+static E_MODIFIER_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"['"][^'"]*/.*/[a-z]*e[a-z]*['"]"#).unwrap());
 
 // ─── Rule 1: no-eval ──────────────────────────────────────────────────────────
 
@@ -416,14 +423,12 @@ impl Rule for NoHardcodedSecret {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let secret_pattern = Regex::new(r"(?i)(password|secret|api_?key|token)").unwrap();
-
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // Detect: $password = "hardcoded";
             if node.kind() == "assignment_expression" {
                 if let Some(left) = node.child_by_field_name("left") {
                     let left_text = &src[left.byte_range()];
-                    if left_text.starts_with('$') && secret_pattern.is_match(left_text) {
+                    if left_text.starts_with('$') && SECRET_PATTERN.is_match(left_text) {
                         if let Some(right) = node.child_by_field_name("right") {
                             if right.kind() == "string"
                                 || right.kind() == "encapsed_string"
@@ -577,8 +582,6 @@ impl Rule for NoPregEval {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let e_modifier = Regex::new(r#"['"][^'"]*/.*/[a-z]*e[a-z]*['"]"#).unwrap();
-
         walk_tree(tree.root_node(), source, &mut |node, src| {
             if node.kind() == "function_call_expression" {
                 if let Some(func) = node.child_by_field_name("function") {
@@ -587,7 +590,7 @@ impl Rule for NoPregEval {
                         if let Some(args) = node.child_by_field_name("arguments") {
                             if let Some(first_arg) = args.named_child(0) {
                                 let arg_text = &src[first_arg.byte_range()];
-                                if e_modifier.is_match(arg_text) {
+                                if E_MODIFIER_PATTERN.is_match(arg_text) {
                                     findings.push(make_finding(
                                         self.id(),
                                         self.severity(),

@@ -2,6 +2,17 @@ use crate::rules::common::{make_finding, walk_tree};
 use crate::rules::Rule;
 use crate::{Finding, Language, Severity};
 use regex::Regex;
+use std::sync::LazyLock;
+
+static SECRET_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)(password|secret|api_?key|apikey|token|credential|private_?key|connection_?string|connectionstring)",
+    )
+    .unwrap()
+});
+
+static CORS_STAR_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"WithOrigins\s*\(\s*"\*"\s*\)"#).unwrap());
 
 /// Check whether a subtree contains a `binary_expression` with `+` operator.
 fn contains_string_concat(node: tree_sitter::Node, source: &str) -> bool {
@@ -485,17 +496,12 @@ impl Rule for NoHardcodedSecret {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let secret_pattern = Regex::new(
-            r"(?i)(password|secret|api_?key|apikey|token|credential|private_?key|connection_?string|connectionstring)",
-        )
-        .unwrap();
-
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // variable_declarator: string password = "hardcoded"
             if node.kind() == "variable_declarator" {
                 if let Some(name_node) = node.child_by_field_name("name") {
                     let name = &src[name_node.byte_range()];
-                    if secret_pattern.is_match(name) {
+                    if SECRET_PATTERN.is_match(name) {
                         // In C# tree-sitter, the string_literal is a direct child
                         let mut cursor = node.walk();
                         for child in node.children(&mut cursor) {
@@ -530,7 +536,7 @@ impl Rule for NoHardcodedSecret {
             if node.kind() == "assignment_expression" {
                 if let Some(left) = node.child_by_field_name("left") {
                     let left_text = &src[left.byte_range()];
-                    if secret_pattern.is_match(left_text) {
+                    if SECRET_PATTERN.is_match(left_text) {
                         if let Some(right) = node.child_by_field_name("right") {
                             if is_string_literal(right) || right.kind() == "string_literal" {
                                 let val = &src[right.byte_range()];
@@ -723,8 +729,6 @@ impl Rule for NoCorsStar {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let cors_star = Regex::new(r#"WithOrigins\s*\(\s*"\*"\s*\)"#).unwrap();
-
         walk_tree(tree.root_node(), source, &mut |node, src| {
             if node.kind() == "invocation_expression" {
                 // Get the direct method name by looking at the first child
@@ -743,7 +747,7 @@ impl Rule for NoCorsStar {
                     ));
                 } else if func_text.ends_with("WithOrigins") {
                     let node_text = &src[node.byte_range()];
-                    if cors_star.is_match(node_text) {
+                    if CORS_STAR_PATTERN.is_match(node_text) {
                         findings.push(make_finding(
                             self.id(),
                             self.severity(),
