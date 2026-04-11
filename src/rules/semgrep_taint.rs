@@ -6,9 +6,10 @@
 //!
 //! # Supported today
 //!
-//! - `mode: taint` with `languages: [python]` (other languages are rejected
-//!   with a warning and the rule is skipped; non-taint rules fall through to
-//!   the regular Semgrep bridge).
+//! - `mode: taint` with `languages: [python]`, `languages: [javascript]`,
+//!   or `languages: [go]` (other languages are rejected with a warning and
+//!   the rule is skipped; non-taint rules fall through to the regular Semgrep
+//!   bridge).
 //! - `pattern-sources`, `pattern-sinks`, `pattern-sanitizers` as lists of
 //!   single-`pattern:` entries *or* `pattern-either:` lists (which may nest
 //!   recursively and flatten into multiple matchers for the same role).
@@ -20,7 +21,7 @@
 //!
 //! - `pattern-inside:`, `metavariable-pattern:`, `patterns:` inside
 //!   source/sink blocks.
-//! - Any `mode: taint` rule that does not target Python.
+//! - Any `mode: taint` rule that does not target Python, JavaScript, or Go.
 //! - Any `pattern:` string whose shape is not one of:
 //!   - bare identifier (`request`) — compiled to `ParamName`
 //!   - dotted attribute chain (`request.data`, `request.json`) — compiled
@@ -36,7 +37,8 @@
 //! clear signal rather than a silently-degraded match surface.
 
 use crate::rules::common::get_source_line;
-use crate::rules::python_taint::{self, NodeMatcher, TaintSpec};
+use crate::rules::python_taint::{NodeMatcher, TaintSpec};
+use crate::rules::{go_taint, javascript_taint, python_taint};
 use crate::rules::{FileContext, Rule};
 use crate::{Finding, Language, Severity};
 use serde_yaml::Value as YamlValue;
@@ -78,8 +80,52 @@ impl Rule for SemgrepTaintRule {
         tree: &tree_sitter::Tree,
         ctx: &FileContext<'_>,
     ) -> Vec<Finding> {
-        let raw =
-            python_taint::analyze_tree(tree.root_node(), source, &self.spec, ctx.python_aliases);
+        let raw = match self.lang {
+            Language::Python => {
+                python_taint::analyze_tree(tree.root_node(), source, &self.spec, ctx.python_aliases)
+            }
+            Language::JavaScript => {
+                let js_spec = to_js_taint_spec(&self.spec);
+                let js_raw = javascript_taint::analyze_tree(
+                    tree.root_node(),
+                    source,
+                    &js_spec,
+                    ctx.javascript_aliases,
+                );
+                js_raw
+                    .into_iter()
+                    .map(|t| python_taint::TaintFinding {
+                        sink_start_byte: t.sink_start_byte,
+                        sink_end_byte: t.sink_end_byte,
+                        sink_line: t.sink_line,
+                        sink_column: t.sink_column,
+                        sink_end_line: t.sink_end_line,
+                        sink_end_column: t.sink_end_column,
+                        source_description: t.source_description,
+                        sink_description: t.sink_description,
+                    })
+                    .collect()
+            }
+            Language::Go => {
+                let go_spec = to_go_taint_spec(&self.spec);
+                let go_raw =
+                    go_taint::analyze_tree(tree.root_node(), source, &go_spec, ctx.go_aliases);
+                go_raw
+                    .into_iter()
+                    .map(|t| python_taint::TaintFinding {
+                        sink_start_byte: t.sink_start_byte,
+                        sink_end_byte: t.sink_end_byte,
+                        sink_line: t.sink_line,
+                        sink_column: t.sink_column,
+                        sink_end_line: t.sink_end_line,
+                        sink_end_column: t.sink_end_column,
+                        source_description: t.source_description,
+                        sink_description: t.sink_description,
+                    })
+                    .collect()
+            }
+            _ => return Vec::new(),
+        };
         raw.into_iter()
             .map(|t| Finding {
                 rule_id: self.id.clone(),
@@ -132,20 +178,36 @@ pub fn parse_taint_rule(yaml: &YamlValue) -> TaintRuleParse {
         None => return TaintRuleParse::Skip("taint rule missing `id`".into()),
     };
 
-    // Language: Python only for now.
+    // Language: Python, JavaScript, or Go.
     let lang = match yaml.get("languages").and_then(YamlValue::as_sequence) {
         Some(langs) => {
-            let has_python = langs
+            let lang_strs: Vec<String> = langs
                 .iter()
                 .filter_map(YamlValue::as_str)
-                .any(|s| matches!(s.to_lowercase().as_str(), "python" | "py"));
-            if !has_python {
+                .map(|s| s.to_lowercase())
+                .collect();
+            if lang_strs
+                .iter()
+                .any(|s| matches!(s.as_str(), "python" | "py"))
+            {
+                Language::Python
+            } else if lang_strs
+                .iter()
+                .any(|s| matches!(s.as_str(), "javascript" | "js" | "typescript" | "ts"))
+            {
+                Language::JavaScript
+            } else if lang_strs
+                .iter()
+                .any(|s| matches!(s.as_str(), "go" | "golang"))
+            {
+                Language::Go
+            } else {
                 return TaintRuleParse::Skip(format!(
-                    "taint rule `{}` targets non-Python languages; only Python is supported",
+                    "taint rule `{}` targets unsupported languages; \
+                     only Python, JavaScript, and Go are supported",
                     id
                 ));
             }
-            Language::Python
         }
         None => return TaintRuleParse::Skip(format!("taint rule `{}` missing `languages`", id)),
     };
@@ -453,6 +515,92 @@ fn extract_cwe(yaml: &YamlValue) -> Option<String> {
     }
 }
 
+// ─── NodeMatcher / TaintSpec conversion helpers ─────────────────────────
+
+/// Convert a Python `NodeMatcher` to its JavaScript equivalent.
+fn to_js_matcher(m: &NodeMatcher) -> javascript_taint::NodeMatcher {
+    match m {
+        NodeMatcher::Attribute {
+            root,
+            field,
+            description,
+        } => javascript_taint::NodeMatcher::Attribute {
+            root: root.clone(),
+            field: field.clone(),
+            description: description.clone(),
+        },
+        NodeMatcher::Call {
+            canonical,
+            description,
+        } => javascript_taint::NodeMatcher::Call {
+            canonical: canonical.clone(),
+            description: description.clone(),
+        },
+        NodeMatcher::ParamName { names, description } => javascript_taint::NodeMatcher::ParamName {
+            names: names.clone(),
+            description: description.clone(),
+        },
+        NodeMatcher::MethodName {
+            method,
+            description,
+        } => javascript_taint::NodeMatcher::MethodName {
+            method: method.clone(),
+            description: description.clone(),
+        },
+    }
+}
+
+/// Convert a Python `TaintSpec` to the JavaScript engine's `TaintSpec`.
+fn to_js_taint_spec(spec: &TaintSpec) -> javascript_taint::TaintSpec {
+    javascript_taint::TaintSpec {
+        sources: spec.sources.iter().map(to_js_matcher).collect(),
+        sinks: spec.sinks.iter().map(to_js_matcher).collect(),
+        sanitizers: spec.sanitizers.iter().map(to_js_matcher).collect(),
+    }
+}
+
+/// Convert a Python `NodeMatcher` to its Go equivalent.
+fn to_go_matcher(m: &NodeMatcher) -> go_taint::NodeMatcher {
+    match m {
+        NodeMatcher::Attribute {
+            root,
+            field,
+            description,
+        } => go_taint::NodeMatcher::Attribute {
+            root: root.clone(),
+            field: field.clone(),
+            description: description.clone(),
+        },
+        NodeMatcher::Call {
+            canonical,
+            description,
+        } => go_taint::NodeMatcher::Call {
+            canonical: canonical.clone(),
+            description: description.clone(),
+        },
+        NodeMatcher::ParamName { names, description } => go_taint::NodeMatcher::ParamName {
+            names: names.clone(),
+            description: description.clone(),
+        },
+        NodeMatcher::MethodName {
+            method,
+            description,
+        } => go_taint::NodeMatcher::MethodName {
+            method: method.clone(),
+            description: description.clone(),
+        },
+    }
+}
+
+/// Convert a Python `TaintSpec` to the Go engine's `TaintSpec`.
+fn to_go_taint_spec(spec: &TaintSpec) -> go_taint::TaintSpec {
+    go_taint::TaintSpec {
+        sources: spec.sources.iter().map(to_go_matcher).collect(),
+        sinks: spec.sinks.iter().map(to_go_matcher).collect(),
+        sanitizers: spec.sanitizers.iter().map(to_go_matcher).collect(),
+    }
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -579,11 +727,11 @@ languages: [python]
     }
 
     #[test]
-    fn taint_rule_with_non_python_language_is_skipped() {
+    fn taint_rule_with_unsupported_language_is_skipped() {
         let yaml = r#"
 id: x
 mode: taint
-languages: [javascript]
+languages: [ruby]
 severity: ERROR
 message: m
 pattern-sources: [{pattern: req}]
@@ -591,6 +739,90 @@ pattern-sinks: [{pattern: eval($X)}]
 "#;
         let v: YamlValue = serde_yaml::from_str(yaml).unwrap();
         assert!(matches!(parse_taint_rule(&v), TaintRuleParse::Skip(_)));
+    }
+
+    #[test]
+    fn taint_rule_javascript_compiles() {
+        let yaml = r#"
+id: js-xss
+mode: taint
+languages: [javascript]
+severity: ERROR
+message: "XSS: untrusted input reaches document.write"
+pattern-sources: [{pattern: req.body}]
+pattern-sinks: [{pattern: document.write($X)}]
+"#;
+        let v: YamlValue = serde_yaml::from_str(yaml).unwrap();
+        match parse_taint_rule(&v) {
+            TaintRuleParse::Compiled(r) => {
+                assert_eq!(r.lang, Language::JavaScript);
+                assert_eq!(r.spec.sources.len(), 1);
+                assert_eq!(r.spec.sinks.len(), 1);
+            }
+            TaintRuleParse::Skip(msg) => panic!("unexpected skip: {}", msg),
+            TaintRuleParse::NotTaint => panic!("expected taint rule"),
+        }
+    }
+
+    #[test]
+    fn taint_rule_go_compiles() {
+        let yaml = r#"
+id: go-sqli
+mode: taint
+languages: [go]
+severity: ERROR
+message: "SQL injection via user input"
+pattern-sources: [{pattern: r.URL}]
+pattern-sinks: [{pattern: db.Query($X)}]
+"#;
+        let v: YamlValue = serde_yaml::from_str(yaml).unwrap();
+        match parse_taint_rule(&v) {
+            TaintRuleParse::Compiled(r) => {
+                assert_eq!(r.lang, Language::Go);
+                assert_eq!(r.spec.sources.len(), 1);
+                assert_eq!(r.spec.sinks.len(), 1);
+            }
+            TaintRuleParse::Skip(msg) => panic!("unexpected skip: {}", msg),
+            TaintRuleParse::NotTaint => panic!("expected taint rule"),
+        }
+    }
+
+    #[test]
+    fn taint_rule_typescript_maps_to_javascript() {
+        let yaml = r#"
+id: ts-xss
+mode: taint
+languages: [typescript]
+severity: WARNING
+message: m
+pattern-sources: [{pattern: req.body}]
+pattern-sinks: [{pattern: res.send($X)}]
+"#;
+        let v: YamlValue = serde_yaml::from_str(yaml).unwrap();
+        match parse_taint_rule(&v) {
+            TaintRuleParse::Compiled(r) => assert_eq!(r.lang, Language::JavaScript),
+            TaintRuleParse::Skip(msg) => panic!("unexpected skip: {}", msg),
+            TaintRuleParse::NotTaint => panic!("expected taint rule"),
+        }
+    }
+
+    #[test]
+    fn taint_rule_golang_alias_compiles() {
+        let yaml = r#"
+id: go2
+mode: taint
+languages: [golang]
+severity: INFO
+message: m
+pattern-sources: [{pattern: req}]
+pattern-sinks: [{pattern: fmt.Fprintf($X)}]
+"#;
+        let v: YamlValue = serde_yaml::from_str(yaml).unwrap();
+        match parse_taint_rule(&v) {
+            TaintRuleParse::Compiled(r) => assert_eq!(r.lang, Language::Go),
+            TaintRuleParse::Skip(msg) => panic!("unexpected skip: {}", msg),
+            TaintRuleParse::NotTaint => panic!("expected taint rule"),
+        }
     }
 
     fn compiled(yaml: &str) -> SemgrepTaintRule {
