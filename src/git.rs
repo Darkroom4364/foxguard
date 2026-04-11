@@ -36,6 +36,7 @@ pub fn changed_files(scan_root: &Path) -> Result<Vec<PathBuf>, String> {
     )?;
 
     if paths.is_empty() {
+        eprintln!("warning: no staged files found, scanning unstaged changes instead");
         paths = collect_changed_paths(
             &repo_root,
             &scan_root,
