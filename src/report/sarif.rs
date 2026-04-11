@@ -1,6 +1,14 @@
 use crate::Finding;
 use serde_json::json;
 
+fn path_to_uri(path: &str) -> String {
+    if path.starts_with('/') {
+        format!("file://{}", path)
+    } else {
+        path.to_string() // relative paths are valid URIs as-is
+    }
+}
+
 pub fn print_sarif(findings: &[Finding]) {
     let results: Vec<_> = findings
         .iter()
@@ -23,7 +31,7 @@ pub fn print_sarif(findings: &[Finding]) {
                 "locations": [{
                     "physicalLocation": {
                         "artifactLocation": {
-                            "uri": f.file
+                            "uri": path_to_uri(&f.file)
                         },
                         "region": {
                             "startLine": f.line,
