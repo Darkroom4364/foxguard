@@ -154,11 +154,18 @@ fn redact_match(line: &str, start: usize, end: usize) -> String {
     redacted
 }
 
+/// Default maximum file size (1 MB).
+pub const DEFAULT_MAX_FILE_SIZE: u64 = 1_048_576;
+
 pub fn scan_directory(root: &str) -> Vec<Finding> {
-    scan_directory_with_config(root, &SecretScanConfig::default())
+    scan_directory_with_config(root, &SecretScanConfig::default(), DEFAULT_MAX_FILE_SIZE)
 }
 
-pub fn scan_directory_with_config(root: &str, config: &SecretScanConfig) -> Vec<Finding> {
+pub fn scan_directory_with_config(
+    root: &str,
+    config: &SecretScanConfig,
+    max_file_size: u64,
+) -> Vec<Finding> {
     let root_path = Path::new(root);
     let files: Vec<PathBuf> = if root_path.is_file() {
         vec![root_path.to_path_buf()]
@@ -173,17 +180,23 @@ pub fn scan_directory_with_config(root: &str, config: &SecretScanConfig) -> Vec<
             .collect()
     };
 
-    scan_paths_with_config(root_path, &files, config)
+    scan_paths_with_config(root_path, &files, config, max_file_size)
 }
 
 pub fn scan_paths(paths: &[PathBuf]) -> Vec<Finding> {
-    scan_paths_with_config(Path::new("."), paths, &SecretScanConfig::default())
+    scan_paths_with_config(
+        Path::new("."),
+        paths,
+        &SecretScanConfig::default(),
+        DEFAULT_MAX_FILE_SIZE,
+    )
 }
 
 pub fn scan_paths_with_config(
     root: &Path,
     paths: &[PathBuf],
     config: &SecretScanConfig,
+    max_file_size: u64,
 ) -> Vec<Finding> {
     let patterns = patterns();
     let mut findings = Vec::new();
@@ -191,6 +204,20 @@ pub fn scan_paths_with_config(
     for path in paths {
         if config.should_skip_path(root, path) {
             continue;
+        }
+
+        // Skip files exceeding the size limit
+        if let Ok(metadata) = std::fs::metadata(path) {
+            let size = metadata.len();
+            if size > max_file_size {
+                eprintln!(
+                    "warning: skipping {} ({} bytes exceeds {} byte limit)",
+                    path.display(),
+                    size,
+                    max_file_size
+                );
+                continue;
+            }
         }
 
         let Some(source) = read_scannable_text(path) else {
