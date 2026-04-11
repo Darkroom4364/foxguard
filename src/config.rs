@@ -71,7 +71,7 @@ pub fn load_for_scan(
 
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read config {}: {}", path.display(), e))?;
-    let raw: RawFoxguardConfig = serde_yaml::from_str(&content)
+    let raw: RawFoxguardConfig = serde_yml::from_str(&content)
         .map_err(|e| format!("Failed to parse config {}: {}", path.display(), e))?;
 
     Ok(Some(FoxguardConfig::from_raw(
@@ -184,11 +184,25 @@ fn resolve_config_path(
         start
     };
 
+    let home = std::env::var("HOME").ok().map(PathBuf::from);
+
     for dir in start.ancestors() {
         for name in CONFIG_NAMES {
             let candidate = dir.join(name);
             if candidate.exists() {
                 return Ok(Some(candidate));
+            }
+        }
+
+        // Stop at repository root
+        if dir.join(".git").exists() {
+            break;
+        }
+
+        // Don't walk past the user's home directory
+        if let Some(ref home) = home {
+            if dir == home.as_path() {
+                break;
             }
         }
     }
