@@ -1,4 +1,4 @@
-use crate::rules::common::{make_finding, walk_tree};
+use crate::rules::common::{get_source_line, make_finding, walk_tree};
 use crate::rules::{FileContext, Rule};
 use crate::{Finding, Language, Severity};
 use regex::Regex;

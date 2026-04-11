@@ -1,4 +1,4 @@
-use crate::rules::common::{make_finding, make_finding_from_offsets, walk_tree};
+use crate::rules::common::{get_source_line, make_finding, make_finding_from_offsets, walk_tree};
 use crate::rules::go_taint::{
     self, go_taint_sources, GoImportAliases, NodeMatcher as GoNodeMatcher, TaintSpec as GoTaintSpec,
 };
