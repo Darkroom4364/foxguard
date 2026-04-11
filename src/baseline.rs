@@ -45,8 +45,6 @@ pub fn fingerprint_finding(finding: &Finding) -> String {
     hasher.update([0]);
     hasher.update(finding.file.as_bytes());
     hasher.update([0]);
-    hasher.update(finding.description.as_bytes());
-    hasher.update([0]);
     // Use snippet for content-based identity; fall back to description if empty
     let content = if finding.snippet.is_empty() {
         &finding.description
