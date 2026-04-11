@@ -609,3 +609,95 @@ impl Rule for NoPregEval {
         findings
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::parser::parse_file;
+
+    fn parse_php(src: &str) -> tree_sitter::Tree {
+        parse_file(src, Language::Php).expect("parse failed")
+    }
+
+    #[test]
+    fn eval_true_positive() {
+        let src = r#"<?php eval($code); ?>"#;
+        let tree = parse_php(src);
+        let findings = NoEval.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect eval()");
+        assert_eq!(findings[0].rule_id, "php/no-eval");
+    }
+
+    #[test]
+    fn eval_true_negative() {
+        let src = r#"<?php echo "hello"; ?>"#;
+        let tree = parse_php(src);
+        let findings = NoEval.check(src, &tree);
+        assert!(findings.is_empty(), "echo should not trigger eval rule");
+    }
+
+    #[test]
+    fn command_injection_true_positive() {
+        let src = r#"<?php system($cmd); ?>"#;
+        let tree = parse_php(src);
+        let findings = NoCommandInjection.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect system()");
+        assert_eq!(findings[0].rule_id, "php/no-command-injection");
+    }
+
+    #[test]
+    fn command_injection_true_negative() {
+        let src = r#"<?php echo strlen($str); ?>"#;
+        let tree = parse_php(src);
+        let findings = NoCommandInjection.check(src, &tree);
+        assert!(findings.is_empty(), "strlen should not trigger");
+    }
+
+    #[test]
+    fn weak_crypto_true_positive() {
+        let src = r#"<?php $hash = md5($data); ?>"#;
+        let tree = parse_php(src);
+        let findings = NoWeakCrypto.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect md5()");
+    }
+
+    #[test]
+    fn weak_crypto_true_negative() {
+        let src = r#"<?php $hash = hash('sha256', $data); ?>"#;
+        let tree = parse_php(src);
+        let findings = NoWeakCrypto.check(src, &tree);
+        assert!(findings.is_empty(), "hash('sha256') should not trigger");
+    }
+
+    #[test]
+    fn unserialize_true_positive() {
+        let src = r#"<?php $obj = unserialize($input); ?>"#;
+        let tree = parse_php(src);
+        let findings = NoUnserialize.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect unserialize()");
+    }
+
+    #[test]
+    fn unserialize_true_negative() {
+        let src = r#"<?php $obj = json_decode($input); ?>"#;
+        let tree = parse_php(src);
+        let findings = NoUnserialize.check(src, &tree);
+        assert!(findings.is_empty(), "json_decode should not trigger");
+    }
+
+    #[test]
+    fn ssrf_true_positive() {
+        let src = r#"<?php file_get_contents($url); ?>"#;
+        let tree = parse_php(src);
+        let findings = NoSsrf.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect SSRF via variable URL");
+    }
+
+    #[test]
+    fn ssrf_true_negative() {
+        let src = r#"<?php $data = strlen("hello"); ?>"#;
+        let tree = parse_php(src);
+        let findings = NoSsrf.check(src, &tree);
+        assert!(findings.is_empty(), "non-SSRF function should not trigger");
+    }
+}

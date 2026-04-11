@@ -633,3 +633,109 @@ impl Rule for NoSsrf {
         findings
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::parser::parse_file;
+
+    fn parse_swift(src: &str) -> tree_sitter::Tree {
+        parse_file(src, Language::Swift).expect("parse failed")
+    }
+
+    #[test]
+    fn hardcoded_secret_true_positive() {
+        let src = r#"let apiKey = "sk_live_abc123def456""#;
+        let tree = parse_swift(src);
+        let findings = NoHardcodedSecret.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect hardcoded apiKey");
+        assert_eq!(findings[0].rule_id, "swift/no-hardcoded-secret");
+    }
+
+    #[test]
+    fn hardcoded_secret_true_negative() {
+        let src = r#"let username = "admin""#;
+        let tree = parse_swift(src);
+        let findings = NoHardcodedSecret.check(src, &tree);
+        assert!(
+            findings.is_empty(),
+            "non-secret variable should not trigger"
+        );
+    }
+
+    #[test]
+    fn weak_crypto_true_positive() {
+        let src = r#"let hash = Insecure.MD5.hash(data: data)"#;
+        let tree = parse_swift(src);
+        let findings = NoWeakCrypto.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect Insecure.MD5");
+    }
+
+    #[test]
+    fn weak_crypto_true_negative() {
+        let src = r#"let hash = SHA256.hash(data: data)"#;
+        let tree = parse_swift(src);
+        let findings = NoWeakCrypto.check(src, &tree);
+        assert!(findings.is_empty(), "SHA256 should not trigger");
+    }
+
+    #[test]
+    fn insecure_keychain_true_positive() {
+        let src = r#"query[kSecAttrAccessible] = kSecAttrAccessibleAlways"#;
+        let tree = parse_swift(src);
+        let findings = NoInsecureKeychain.check(src, &tree);
+        assert!(
+            !findings.is_empty(),
+            "should detect kSecAttrAccessibleAlways"
+        );
+    }
+
+    #[test]
+    fn insecure_keychain_true_negative() {
+        let src = r#"query[kSecAttrAccessible] = kSecAttrAccessibleWhenUnlocked"#;
+        let tree = parse_swift(src);
+        let findings = NoInsecureKeychain.check(src, &tree);
+        assert!(
+            findings.is_empty(),
+            "kSecAttrAccessibleWhenUnlocked should not trigger"
+        );
+    }
+
+    #[test]
+    fn tls_disabled_true_positive() {
+        let src = r#"policy.allowsExpiredCertificates = true"#;
+        let tree = parse_swift(src);
+        let findings = NoTlsDisabled.check(src, &tree);
+        assert!(
+            !findings.is_empty(),
+            "should detect allowsExpiredCertificates = true"
+        );
+    }
+
+    #[test]
+    fn tls_disabled_true_negative() {
+        let src = r#"policy.allowsExpiredCertificates = false"#;
+        let tree = parse_swift(src);
+        let findings = NoTlsDisabled.check(src, &tree);
+        assert!(
+            findings.is_empty(),
+            "allowsExpiredCertificates = false should not trigger"
+        );
+    }
+
+    #[test]
+    fn insecure_transport_true_positive() {
+        let src = r#"let url = "http://example.com/api""#;
+        let tree = parse_swift(src);
+        let findings = NoInsecureTransport.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect http:// URL");
+    }
+
+    #[test]
+    fn insecure_transport_true_negative() {
+        let src = r#"let url = "https://example.com/api""#;
+        let tree = parse_swift(src);
+        let findings = NoInsecureTransport.check(src, &tree);
+        assert!(findings.is_empty(), "https:// URL should not trigger");
+    }
+}

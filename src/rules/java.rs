@@ -753,3 +753,167 @@ impl Rule for SpringCorsPermissive {
         findings
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::parser::parse_file;
+
+    fn parse_java(src: &str) -> tree_sitter::Tree {
+        parse_file(src, Language::Java).expect("parse failed")
+    }
+
+    #[test]
+    fn sql_injection_true_positive() {
+        let src = r#"
+class Dao {
+    void search(String input) {
+        stmt.executeQuery("SELECT * FROM users WHERE name = '" + input + "'");
+    }
+}
+"#;
+        let tree = parse_java(src);
+        let findings = NoSqlInjection.check(src, &tree);
+        assert!(
+            !findings.is_empty(),
+            "should detect SQL injection via concat"
+        );
+        assert_eq!(findings[0].rule_id, "java/no-sql-injection");
+    }
+
+    #[test]
+    fn sql_injection_true_negative() {
+        let src = r#"
+class Dao {
+    void search() {
+        stmt.executeQuery("SELECT * FROM users WHERE active = true");
+    }
+}
+"#;
+        let tree = parse_java(src);
+        let findings = NoSqlInjection.check(src, &tree);
+        assert!(findings.is_empty(), "static SQL string should not trigger");
+    }
+
+    #[test]
+    fn hardcoded_secret_true_positive() {
+        let src = r#"
+class Config {
+    String password = "supersecret123";
+}
+"#;
+        let tree = parse_java(src);
+        let findings = NoHardcodedSecret.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect hardcoded password");
+        assert_eq!(findings[0].rule_id, "java/no-hardcoded-secret");
+    }
+
+    #[test]
+    fn hardcoded_secret_true_negative() {
+        let src = r#"
+class Config {
+    String username = "admin";
+}
+"#;
+        let tree = parse_java(src);
+        let findings = NoHardcodedSecret.check(src, &tree);
+        assert!(
+            findings.is_empty(),
+            "non-secret variable name should not trigger"
+        );
+    }
+
+    #[test]
+    fn weak_crypto_true_positive() {
+        let src = r#"
+class CryptoUtil {
+    void hash() {
+        MessageDigest.getInstance("MD5");
+    }
+}
+"#;
+        let tree = parse_java(src);
+        let findings = NoWeakCrypto.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect weak MD5 usage");
+    }
+
+    #[test]
+    fn weak_crypto_true_negative() {
+        let src = r#"
+class CryptoUtil {
+    void hash() {
+        MessageDigest.getInstance("SHA-256");
+    }
+}
+"#;
+        let tree = parse_java(src);
+        let findings = NoWeakCrypto.check(src, &tree);
+        assert!(findings.is_empty(), "SHA-256 should not trigger");
+    }
+
+    #[test]
+    fn command_injection_true_positive() {
+        let src = r#"
+class Runner {
+    void run(String cmd) {
+        Runtime.getRuntime().exec(cmd);
+    }
+}
+"#;
+        let tree = parse_java(src);
+        let findings = NoCommandInjection.check(src, &tree);
+        assert!(
+            !findings.is_empty(),
+            "should detect command injection via Runtime.exec"
+        );
+    }
+
+    #[test]
+    fn command_injection_true_negative() {
+        let src = r#"
+class Runner {
+    void run() {
+        Runtime.getRuntime().exec("ls");
+    }
+}
+"#;
+        let tree = parse_java(src);
+        let findings = NoCommandInjection.check(src, &tree);
+        assert!(findings.is_empty(), "literal arg should not trigger");
+    }
+
+    #[test]
+    fn xxe_true_positive() {
+        let src = r#"
+class XmlParser {
+    void parse() {
+        DocumentBuilderFactory.newInstance();
+    }
+}
+"#;
+        let tree = parse_java(src);
+        let findings = NoXxe.check(src, &tree);
+        assert!(
+            !findings.is_empty(),
+            "XML factory without setFeature should trigger"
+        );
+    }
+
+    #[test]
+    fn xxe_true_negative() {
+        let src = r#"
+class XmlParser {
+    void parse() {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+    }
+}
+"#;
+        let tree = parse_java(src);
+        let findings = NoXxe.check(src, &tree);
+        assert!(
+            findings.is_empty(),
+            "XML factory with setFeature should not trigger"
+        );
+    }
+}

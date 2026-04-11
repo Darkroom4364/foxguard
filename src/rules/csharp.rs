@@ -763,3 +763,136 @@ impl Rule for NoCorsStar {
         findings
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::parser::parse_file;
+
+    fn parse_cs(src: &str) -> tree_sitter::Tree {
+        parse_file(src, Language::CSharp).expect("parse failed")
+    }
+
+    #[test]
+    fn sql_injection_true_positive() {
+        let src = r#"
+class Repo {
+    void Search(string input) {
+        cmd.ExecuteReader("SELECT * FROM users WHERE name = '" + input + "'");
+    }
+}
+"#;
+        let tree = parse_cs(src);
+        let findings = NoSqlInjection.check(src, &tree);
+        assert!(
+            !findings.is_empty(),
+            "should detect SQL injection via concatenation"
+        );
+        assert_eq!(findings[0].rule_id, "cs/no-sql-injection");
+    }
+
+    #[test]
+    fn sql_injection_true_negative() {
+        let src = r#"
+class Repo {
+    void Search() {
+        cmd.ExecuteReader("SELECT * FROM users WHERE active = 1");
+    }
+}
+"#;
+        let tree = parse_cs(src);
+        let findings = NoSqlInjection.check(src, &tree);
+        assert!(findings.is_empty(), "static SQL should not trigger");
+    }
+
+    #[test]
+    fn hardcoded_secret_true_positive() {
+        let src = r#"
+class Config {
+    void Init() {
+        string password = "supersecret123";
+    }
+}
+"#;
+        let tree = parse_cs(src);
+        let findings = NoHardcodedSecret.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect hardcoded password");
+        assert_eq!(findings[0].rule_id, "cs/no-hardcoded-secret");
+    }
+
+    #[test]
+    fn hardcoded_secret_true_negative() {
+        let src = r#"
+class Config {
+    void Init() {
+        string name = "admin";
+    }
+}
+"#;
+        let tree = parse_cs(src);
+        let findings = NoHardcodedSecret.check(src, &tree);
+        assert!(
+            findings.is_empty(),
+            "non-secret variable should not trigger"
+        );
+    }
+
+    #[test]
+    fn weak_crypto_true_positive() {
+        let src = r#"
+class CryptoUtil {
+    void Hash() {
+        var h = MD5.Create();
+    }
+}
+"#;
+        let tree = parse_cs(src);
+        let findings = NoWeakCrypto.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect MD5.Create()");
+    }
+
+    #[test]
+    fn weak_crypto_true_negative() {
+        let src = r#"
+class CryptoUtil {
+    void Hash() {
+        var h = SHA256.Create();
+    }
+}
+"#;
+        let tree = parse_cs(src);
+        let findings = NoWeakCrypto.check(src, &tree);
+        assert!(findings.is_empty(), "SHA256 should not trigger");
+    }
+
+    #[test]
+    fn unsafe_deserialization_true_positive() {
+        let src = r#"
+class Deser {
+    void Load() {
+        var f = new BinaryFormatter();
+    }
+}
+"#;
+        let tree = parse_cs(src);
+        let findings = NoUnsafeDeserialization.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect new BinaryFormatter()");
+    }
+
+    #[test]
+    fn unsafe_deserialization_true_negative() {
+        let src = r#"
+class Deser {
+    void Load() {
+        var obj = JsonConvert.DeserializeObject(data);
+    }
+}
+"#;
+        let tree = parse_cs(src);
+        let findings = NoUnsafeDeserialization.check(src, &tree);
+        assert!(
+            findings.is_empty(),
+            "JsonConvert should not trigger unsafe deser"
+        );
+    }
+}
