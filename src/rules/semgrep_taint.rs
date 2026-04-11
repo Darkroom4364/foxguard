@@ -100,7 +100,6 @@ impl Rule for SemgrepTaintRule {
     }
 }
 
-
 // ─── YAML → TaintSpec compilation ─────────────────────────────────────────
 
 /// Outcome of trying to parse a single YAML rule as a taint rule.

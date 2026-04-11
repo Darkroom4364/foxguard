@@ -21,6 +21,7 @@ pub struct ScanConfig {
     pub no_builtins: bool,
     pub severity: Option<SeverityFilter>,
     pub baseline: Option<String>,
+    pub max_file_size: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -29,6 +30,7 @@ pub struct SecretsConfig {
     pub exclude_paths: Vec<String>,
     pub exclude_path_file: Option<String>,
     pub ignored_rules: Vec<String>,
+    pub max_file_size: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -45,6 +47,7 @@ struct RawScanConfig {
     no_builtins: Option<bool>,
     severity: Option<SeverityFilter>,
     baseline: Option<String>,
+    max_file_size: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -55,6 +58,7 @@ struct RawSecretsConfig {
     exclude_path_file: Option<String>,
     #[serde(default)]
     ignore_rules: Vec<String>,
+    max_file_size: Option<u64>,
 }
 
 pub fn load_for_scan(
@@ -93,6 +97,9 @@ pub fn apply_scan_defaults(scan: &mut ScanArgs, config: Option<&FoxguardConfig>)
     if scan.baseline.is_none() {
         scan.baseline = config.scan.baseline.clone();
     }
+    if scan.max_file_size.is_none() {
+        scan.max_file_size = config.scan.max_file_size;
+    }
 }
 
 pub fn apply_secrets_defaults(args: &mut SecretsArgs, config: Option<&FoxguardConfig>) {
@@ -110,6 +117,9 @@ pub fn apply_secrets_defaults(args: &mut SecretsArgs, config: Option<&FoxguardCo
         .extend(config.secrets.exclude_paths.clone());
     args.ignored_rules
         .extend(config.secrets.ignored_rules.clone());
+    if args.max_file_size.is_none() {
+        args.max_file_size = config.secrets.max_file_size;
+    }
 }
 
 impl FoxguardConfig {
@@ -126,6 +136,7 @@ impl FoxguardConfig {
                     .scan
                     .baseline
                     .map(|path| resolve_value_path(config_dir, &path)),
+                max_file_size: raw.scan.max_file_size,
             },
             secrets: SecretsConfig {
                 baseline: raw
@@ -143,6 +154,7 @@ impl FoxguardConfig {
                     .exclude_path_file
                     .map(|path| resolve_value_path(config_dir, &path)),
                 ignored_rules: raw.secrets.ignore_rules,
+                max_file_size: raw.secrets.max_file_size,
             },
         }
     }

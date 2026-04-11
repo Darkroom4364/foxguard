@@ -55,6 +55,10 @@ pub struct ScanArgs {
     /// Write the current findings to a baseline file
     #[arg(long)]
     pub write_baseline: Option<String>,
+
+    /// Maximum file size in bytes to scan (files larger than this are skipped)
+    #[arg(long)]
+    pub max_file_size: Option<u64>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -135,6 +139,10 @@ pub struct SecretsArgs {
     /// Ignore a specific built-in secrets rule ID (repeatable)
     #[arg(long = "ignore-rule")]
     pub ignored_rules: Vec<String>,
+
+    /// Maximum file size in bytes to scan (files larger than this are skipped)
+    #[arg(long)]
+    pub max_file_size: Option<u64>,
 }
 
 #[derive(Subcommand, Debug, Clone)]

@@ -111,9 +111,20 @@ fn scan_findings(scan: &ScanArgs) -> Result<ScanResult, i32> {
     let targets = collect_changed_targets(&scan.path, scan.changed)?;
 
     let mut result = if let Some(files) = targets {
-        scan_paths_with_root(Path::new(&scan.path), &files, &registry)
+        scan_paths_with_root(
+            Path::new(&scan.path),
+            &files,
+            &registry,
+            scan.max_file_size
+                .unwrap_or(foxguard::engine::DEFAULT_MAX_FILE_SIZE),
+        )
     } else {
-        scan_directory(&scan.path, &registry)
+        scan_directory(
+            &scan.path,
+            &registry,
+            scan.max_file_size
+                .unwrap_or(foxguard::engine::DEFAULT_MAX_FILE_SIZE),
+        )
     };
 
     // Filter by severity if specified
@@ -233,9 +244,20 @@ fn run_secrets(args: &SecretsArgs) -> i32 {
     };
 
     let mut findings = if let Some(files) = targets {
-        scan_secrets_paths(scan_path, &files, &config)
+        scan_secrets_paths(
+            scan_path,
+            &files,
+            &config,
+            args.max_file_size
+                .unwrap_or(foxguard::secrets::DEFAULT_MAX_FILE_SIZE),
+        )
     } else {
-        scan_secrets_directory(&args.path, &config)
+        scan_secrets_directory(
+            &args.path,
+            &config,
+            args.max_file_size
+                .unwrap_or(foxguard::secrets::DEFAULT_MAX_FILE_SIZE),
+        )
     };
 
     if let Some(ref path) = args.write_baseline {
@@ -366,6 +388,7 @@ fn run_init(args: &InitArgs) -> i32 {
                 changed: false,
                 baseline: None,
                 write_baseline: None,
+                max_file_size: None,
             },
             output: repo_root.join(&args.baseline).display().to_string(),
         };
@@ -385,6 +408,7 @@ fn run_init(args: &InitArgs) -> i32 {
             exclude_paths: Vec::new(),
             exclude_path_file: None,
             ignored_rules: Vec::new(),
+            max_file_size: None,
         };
 
         let code = run_secrets(&secrets_args);
