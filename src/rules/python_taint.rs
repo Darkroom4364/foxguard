@@ -658,15 +658,17 @@ fn expression_taint(
         }
     }
 
-    // Binary `+` propagation: `"prefix " + tainted` or `tainted + "suffix"`
+    // Binary `+` / `%` propagation: `"prefix " + tainted` or `"… %s" % tainted`
     // is tainted. This mirrors the JS engine's string-concat rule and
-    // covers the most common SQL/command injection pattern in Python.
+    // covers the most common SQL/command injection patterns in Python.
+    // The `%` operator handles old-style format strings (`"SELECT %s" % val`).
     // Conservative: if EITHER operand is tainted, the result is tainted.
     // Integer arithmetic on clean values short-circuits naturally because
     // both recursive calls return None.
     if expr.kind() == "binary_operator" {
         if let Some(op) = expr.child_by_field_name("operator") {
-            if node_text(op, source) == "+" {
+            let op_text = node_text(op, source);
+            if op_text == "+" || op_text == "%" {
                 if let Some(left) = expr.child_by_field_name("left") {
                     if let Some(desc) =
                         expression_taint(left, source, spec, aliases, state, summaries)
@@ -1772,6 +1774,82 @@ import pickle
 def handler():
     x = 1 + 2
     data = b"trusted" + bytes([x])
+    return pickle.loads(data)
+"#;
+        assert_eq!(run(src).len(), 0);
+    }
+
+    #[test]
+    fn percent_format_with_tainted_right_operand_is_tainted() {
+        let src = r#"
+import pickle
+from flask import request
+
+def handler():
+    data = "SELECT %s" % request.data
+    return pickle.loads(data)
+"#;
+        assert_eq!(run(src).len(), 1);
+    }
+
+    #[test]
+    fn percent_format_with_tainted_left_operand_is_tainted() {
+        let src = r#"
+import pickle
+from flask import request
+
+def handler():
+    data = request.data % "suffix"
+    return pickle.loads(data)
+"#;
+        assert_eq!(run(src).len(), 1);
+    }
+
+    #[test]
+    fn percent_format_with_both_literal_is_clean() {
+        let src = r#"
+import pickle
+
+def handler():
+    data = "hello %s" % "world"
+    return pickle.loads(data)
+"#;
+        assert_eq!(run(src).len(), 0);
+    }
+
+    #[test]
+    fn dot_format_with_tainted_argument_is_tainted() {
+        let src = r#"
+import pickle
+from flask import request
+
+def handler():
+    data = "SELECT {}".format(request.data)
+    return pickle.loads(data)
+"#;
+        assert_eq!(run(src).len(), 1);
+    }
+
+    #[test]
+    fn dot_format_with_tainted_receiver_is_tainted() {
+        let src = r#"
+import pickle
+from flask import request
+
+def handler():
+    data = request.data.format("x")
+    return pickle.loads(data)
+"#;
+        assert_eq!(run(src).len(), 1);
+    }
+
+    #[test]
+    fn dot_format_with_literal_only_is_clean() {
+        let src = r#"
+import pickle
+
+def handler():
+    data = "hello {}".format("world")
     return pickle.loads(data)
 "#;
         assert_eq!(run(src).len(), 0);
