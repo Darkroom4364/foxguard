@@ -16,17 +16,22 @@ pub fn get_source_line(source: &str, byte_offset: usize) -> String {
     source[start..end].to_string()
 }
 
-/// Recursively walk every node in a tree-sitter tree, calling `callback` on
-/// each node.
+/// Walk every node in a tree-sitter tree in DFS pre-order, calling `callback`
+/// on each node.  Uses an explicit stack instead of recursion.
 pub fn walk_tree(
     node: tree_sitter::Node,
     source: &str,
     callback: &mut dyn FnMut(tree_sitter::Node, &str),
 ) {
-    callback(node, source);
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        walk_tree(child, source, callback);
+    let mut stack = vec![node];
+    while let Some(current) = stack.pop() {
+        callback(current, source);
+        let child_count = current.child_count();
+        for i in (0..child_count).rev() {
+            if let Some(child) = current.child(i) {
+                stack.push(child);
+            }
+        }
     }
 }
 
