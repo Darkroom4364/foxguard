@@ -2,6 +2,35 @@ use crate::rules::common::{make_finding, make_finding_from_offsets, walk_tree};
 use crate::rules::Rule;
 use crate::{Finding, Language, Severity};
 use regex::Regex;
+use std::sync::LazyLock;
+
+static SQL_METHODS_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(executeQuery|execute|createQuery|createNativeQuery)$").unwrap()
+});
+
+static WEAK_ALGO_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)"(DES|DESede|RC2|RC4|Blowfish|MD5|SHA-?1|.*ECB.*)"#).unwrap()
+});
+
+static SECRET_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(password|secret|api_?key|apiKey|token|auth|credential|private_?key)").unwrap()
+});
+
+static XML_FACTORY_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(DocumentBuilderFactory|SAXParserFactory|XMLInputFactory)\.newInstance\(\)")
+        .unwrap()
+});
+
+static XML_SECURE_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"setFeature\s*\(|setProperty\s*\(|setAttribute\s*\(").unwrap());
+
+static CSRF_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\.csrf\(\s*\)\s*\.\s*disable\(\s*\)|csrf\s*\([^)]*\.\s*disable\(\s*\)\s*\)")
+        .unwrap()
+});
+
+static CORS_WILDCARD_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"allowedOrigins\s*\(\s*"\*"\s*\)"#).unwrap());
 
 /// Check whether any descendant of `node` is a `binary_expression` with a `+`
 /// operator that involves a `string_literal`.
@@ -85,14 +114,11 @@ impl Rule for NoSqlInjection {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let sql_methods =
-            Regex::new(r"^(executeQuery|execute|createQuery|createNativeQuery)$").unwrap();
-
         walk_tree(tree.root_node(), source, &mut |node, src| {
             if node.kind() == "method_invocation" {
                 if let Some(name) = node.child_by_field_name("name") {
                     let name_text = &src[name.byte_range()];
-                    if sql_methods.is_match(name_text) {
+                    if SQL_METHODS_PATTERN.is_match(name_text) {
                         if let Some(args) = node.child_by_field_name("arguments") {
                             if has_string_concat(args, src) {
                                 findings.push(make_finding(
@@ -460,9 +486,6 @@ impl Rule for NoWeakCrypto {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let weak_algo =
-            Regex::new(r#"(?i)"(DES|DESede|RC2|RC4|Blowfish|MD5|SHA-?1|.*ECB.*)"#).unwrap();
-
         walk_tree(tree.root_node(), source, &mut |node, src| {
             if node.kind() == "method_invocation" {
                 if let Some(name) = node.child_by_field_name("name") {
@@ -478,7 +501,7 @@ impl Rule for NoWeakCrypto {
                                 if let Some(args) = node.child_by_field_name("arguments") {
                                     if let Some(first_arg) = args.named_child(0) {
                                         let arg_text = &src[first_arg.byte_range()];
-                                        if weak_algo.is_match(arg_text) {
+                                        if WEAK_ALGO_PATTERN.is_match(arg_text) {
                                             findings.push(make_finding(
                                                 self.id(),
                                                 self.severity(),
@@ -526,16 +549,12 @@ impl Rule for NoHardcodedSecret {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let secret_pattern =
-            Regex::new(r"(?i)(password|secret|api_?key|apiKey|token|auth|credential|private_?key)")
-                .unwrap();
-
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // variable_declarator: String password = "hardcoded";
             if node.kind() == "variable_declarator" {
                 if let Some(name_node) = node.child_by_field_name("name") {
                     let name = &src[name_node.byte_range()];
-                    if secret_pattern.is_match(name) {
+                    if SECRET_PATTERN.is_match(name) {
                         if let Some(value) = node.child_by_field_name("value") {
                             if value.kind() == "string_literal" {
                                 let val = &src[value.byte_range()];
@@ -563,7 +582,7 @@ impl Rule for NoHardcodedSecret {
             if node.kind() == "assignment_expression" {
                 if let Some(left) = node.child_by_field_name("left") {
                     let left_text = &src[left.byte_range()];
-                    if secret_pattern.is_match(left_text) {
+                    if SECRET_PATTERN.is_match(left_text) {
                         if let Some(right) = node.child_by_field_name("right") {
                             if right.kind() == "string_literal" {
                                 let val = &src[right.byte_range()];
@@ -614,17 +633,10 @@ impl Rule for NoXxe {
 
     fn check(&self, source: &str, _tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let factory_pattern = Regex::new(
-            r"(DocumentBuilderFactory|SAXParserFactory|XMLInputFactory)\.newInstance\(\)",
-        )
-        .unwrap();
-        let secure_pattern =
-            Regex::new(r"setFeature\s*\(|setProperty\s*\(|setAttribute\s*\(").unwrap();
-
         // Simple heuristic: if a factory is created but no setFeature is called
         // in the same file, flag it.
-        if factory_pattern.is_match(source) && !secure_pattern.is_match(source) {
-            for matched in factory_pattern.find_iter(source) {
+        if XML_FACTORY_PATTERN.is_match(source) && !XML_SECURE_PATTERN.is_match(source) {
+            for matched in XML_FACTORY_PATTERN.find_iter(source) {
                 findings.push(make_finding_from_offsets(
                     self.id(),
                     self.severity(),
@@ -664,12 +676,7 @@ impl Rule for SpringCsrfDisabled {
     fn check(&self, source: &str, _tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
         // .csrf().disable() or csrf(csrf -> csrf.disable()) or csrf(c -> c.disable())
-        let csrf_pattern = Regex::new(
-            r"\.csrf\(\s*\)\s*\.\s*disable\(\s*\)|csrf\s*\([^)]*\.\s*disable\(\s*\)\s*\)",
-        )
-        .unwrap();
-
-        for matched in csrf_pattern.find_iter(source) {
+        for matched in CSRF_PATTERN.find_iter(source) {
             findings.push(make_finding_from_offsets(
                 self.id(),
                 self.severity(),
@@ -709,8 +716,7 @@ impl Rule for SpringCorsPermissive {
         let mut findings = Vec::new();
 
         // allowedOrigins("*")
-        let wildcard_pattern = Regex::new(r#"allowedOrigins\s*\(\s*"\*"\s*\)"#).unwrap();
-        for matched in wildcard_pattern.find_iter(source) {
+        for matched in CORS_WILDCARD_PATTERN.find_iter(source) {
             findings.push(make_finding_from_offsets(
                 self.id(),
                 self.severity(),

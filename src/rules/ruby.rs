@@ -2,6 +2,11 @@ use crate::rules::common::{make_finding, walk_tree};
 use crate::rules::Rule;
 use crate::{Finding, Language, Severity};
 use regex::Regex;
+use std::sync::LazyLock;
+
+static SECRET_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(password|secret|api_?key|token|auth|credential|private_?key)").unwrap()
+});
 
 // ─── Rule 1: no-eval ──────────────────────────────────────────────────────────
 
@@ -517,10 +522,6 @@ impl Rule for NoHardcodedSecret {
 
     fn check(&self, source: &str, tree: &tree_sitter::Tree) -> Vec<Finding> {
         let mut findings = Vec::new();
-        let secret_pattern =
-            Regex::new(r"(?i)(password|secret|api_?key|token|auth|credential|private_?key)")
-                .unwrap();
-
         walk_tree(tree.root_node(), source, &mut |node, src| {
             // assignment: variable = "hardcoded"
             if node.kind() == "assignment" {
@@ -529,7 +530,7 @@ impl Rule for NoHardcodedSecret {
                     node.child_by_field_name("right"),
                 ) {
                     let left_text = &src[left.byte_range()];
-                    if secret_pattern.is_match(left_text) && right.kind() == "string" {
+                    if SECRET_PATTERN.is_match(left_text) && right.kind() == "string" {
                         let val = &src[right.byte_range()];
                         // Strip quotes and check length
                         let inner = val
