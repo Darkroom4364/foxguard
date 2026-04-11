@@ -1,5 +1,6 @@
 use crate::{Finding, Severity};
 use ignore::WalkBuilder;
+use rayon::prelude::*;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -147,10 +148,28 @@ fn patterns() -> &'static [SecretPattern] {
 }
 
 fn redact_match(line: &str, start: usize, end: usize) -> String {
+    // Find the nearest valid UTF-8 char boundaries to avoid panics on
+    // multi-byte characters.
+    let safe_start = if line.is_char_boundary(start) {
+        start
+    } else {
+        (0..=start)
+            .rev()
+            .find(|&i| line.is_char_boundary(i))
+            .unwrap_or(0)
+    };
+    let safe_end = if line.is_char_boundary(end) {
+        end
+    } else {
+        (end..=line.len())
+            .find(|&i| line.is_char_boundary(i))
+            .unwrap_or(line.len())
+    };
+
     let mut redacted = String::with_capacity(line.len());
-    redacted.push_str(&line[..start]);
+    redacted.push_str(&line[..safe_start]);
     redacted.push_str("[REDACTED]");
-    redacted.push_str(&line[end..]);
+    redacted.push_str(&line[safe_end..]);
     redacted
 }
 
@@ -199,15 +218,11 @@ pub fn scan_paths_with_config(
     max_file_size: u64,
 ) -> Vec<Finding> {
     let patterns = patterns();
-    let mut findings = Vec::new();
 
-    for path in paths {
-        if config.should_skip_path(root, path) {
-            continue;
-        }
-
-        // Skip files exceeding the size limit (fail closed on metadata error)
-        match std::fs::metadata(path) {
+    let mut findings: Vec<Finding> = paths
+        .par_iter()
+        .filter(|path| !config.should_skip_path(root, path))
+        .filter(|path| match std::fs::metadata(path) {
             Ok(metadata) => {
                 let size = metadata.len();
                 if size > max_file_size {
@@ -217,7 +232,9 @@ pub fn scan_paths_with_config(
                         size,
                         max_file_size
                     );
-                    continue;
+                    false
+                } else {
+                    true
                 }
             }
             Err(_) => {
@@ -225,37 +242,40 @@ pub fn scan_paths_with_config(
                     "warning: skipping {} (cannot read file metadata)",
                     path.display()
                 );
-                continue;
+                false
             }
-        }
+        })
+        .flat_map(|path| {
+            let Some(source) = read_scannable_text(path) else {
+                return Vec::new();
+            };
 
-        let Some(source) = read_scannable_text(path) else {
-            continue;
-        };
+            let mut local_findings = Vec::new();
+            for (line_idx, line) in source.lines().enumerate() {
+                for pattern in patterns {
+                    if config.should_skip_rule(pattern.rule_id) {
+                        continue;
+                    }
 
-        for (line_idx, line) in source.lines().enumerate() {
-            for pattern in patterns {
-                if config.should_skip_rule(pattern.rule_id) {
-                    continue;
-                }
-
-                for matched in pattern.regex.find_iter(line) {
-                    findings.push(Finding {
-                        rule_id: pattern.rule_id.to_string(),
-                        severity: pattern.severity,
-                        cwe: pattern.cwe.map(str::to_string),
-                        description: pattern.description.to_string(),
-                        file: path.display().to_string(),
-                        line: line_idx + 1,
-                        column: matched.start() + 1,
-                        end_line: line_idx + 1,
-                        end_column: matched.end() + 1,
-                        snippet: redact_match(line, matched.start(), matched.end()),
-                    });
+                    for matched in pattern.regex.find_iter(line) {
+                        local_findings.push(Finding {
+                            rule_id: pattern.rule_id.to_string(),
+                            severity: pattern.severity,
+                            cwe: pattern.cwe.map(str::to_string),
+                            description: pattern.description.to_string(),
+                            file: path.display().to_string(),
+                            line: line_idx + 1,
+                            column: matched.start() + 1,
+                            end_line: line_idx + 1,
+                            end_column: matched.end() + 1,
+                            snippet: redact_match(line, matched.start(), matched.end()),
+                        });
+                    }
                 }
             }
-        }
-    }
+            local_findings
+        })
+        .collect();
 
     findings.sort_by(|a, b| {
         a.file
