@@ -430,3 +430,301 @@ fn scan_root(path: &Path) -> &Path {
 fn relative_scan_path(scan_root: &Path, path: &Path) -> PathBuf {
     path.strip_prefix(scan_root).unwrap_or(path).to_path_buf()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Finding, Severity};
+
+    fn make_finding(rule_id: &str, line: usize) -> Finding {
+        Finding {
+            rule_id: rule_id.to_string(),
+            severity: Severity::High,
+            cwe: None,
+            description: "test finding".to_string(),
+            file: "test.py".to_string(),
+            line,
+            column: 1,
+            end_line: line,
+            end_column: 10,
+            snippet: "some_code()".to_string(),
+        }
+    }
+
+    // ── parse_inline_ignore tests ──────────────────────────────────────
+
+    #[test]
+    fn parse_inline_ignore_python_same_line() {
+        let result = parse_inline_ignore("x = dangerous()  # foxguard: ignore", Language::Python);
+        assert!(result.is_some());
+        let (comment_only, spec) = result.unwrap();
+        assert!(!comment_only);
+        assert!(spec.all_rules);
+    }
+
+    #[test]
+    fn parse_inline_ignore_python_standalone() {
+        let result = parse_inline_ignore("  # foxguard: ignore", Language::Python);
+        assert!(result.is_some());
+        let (comment_only, spec) = result.unwrap();
+        assert!(comment_only);
+        assert!(spec.all_rules);
+    }
+
+    #[test]
+    fn parse_inline_ignore_with_specific_rule_id() {
+        let result = parse_inline_ignore(
+            "x = foo()  # foxguard: ignore[sql-injection]",
+            Language::Python,
+        );
+        assert!(result.is_some());
+        let (comment_only, spec) = result.unwrap();
+        assert!(!comment_only);
+        assert!(!spec.all_rules);
+        assert!(spec.rule_ids.contains("sql-injection"));
+    }
+
+    #[test]
+    fn parse_inline_ignore_with_multiple_rule_ids() {
+        let result = parse_inline_ignore(
+            "x = foo()  # foxguard: ignore[sql-injection, xss]",
+            Language::Python,
+        );
+        assert!(result.is_some());
+        let (_, spec) = result.unwrap();
+        assert!(!spec.all_rules);
+        assert!(spec.rule_ids.contains("sql-injection"));
+        assert!(spec.rule_ids.contains("xss"));
+    }
+
+    #[test]
+    fn parse_inline_ignore_block_comment_same_line() {
+        let result = parse_inline_ignore(
+            "x = dangerous() /* foxguard: ignore */",
+            Language::JavaScript,
+        );
+        assert!(result.is_some());
+        let (comment_only, spec) = result.unwrap();
+        assert!(!comment_only);
+        assert!(spec.all_rules);
+    }
+
+    #[test]
+    fn parse_inline_ignore_block_comment_standalone() {
+        let result = parse_inline_ignore("  /* foxguard: ignore */", Language::JavaScript);
+        assert!(result.is_some());
+        let (comment_only, _) = result.unwrap();
+        assert!(comment_only);
+    }
+
+    #[test]
+    fn parse_inline_ignore_block_comment_with_rule() {
+        let result = parse_inline_ignore(
+            "x = foo() /* foxguard: ignore[xss] */",
+            Language::JavaScript,
+        );
+        assert!(result.is_some());
+        let (comment_only, spec) = result.unwrap();
+        assert!(!comment_only);
+        assert!(!spec.all_rules);
+        assert!(spec.rule_ids.contains("xss"));
+    }
+
+    #[test]
+    fn parse_inline_ignore_hyphen_form() {
+        let result = parse_inline_ignore("x = foo()  # foxguard-ignore", Language::Python);
+        assert!(result.is_some());
+        let (_, spec) = result.unwrap();
+        assert!(spec.all_rules);
+    }
+
+    #[test]
+    fn parse_inline_ignore_js_double_slash() {
+        let result =
+            parse_inline_ignore("let x = eval(s); // foxguard: ignore", Language::JavaScript);
+        assert!(result.is_some());
+        let (comment_only, spec) = result.unwrap();
+        assert!(!comment_only);
+        assert!(spec.all_rules);
+    }
+
+    #[test]
+    fn parse_inline_ignore_no_directive() {
+        let result = parse_inline_ignore("x = dangerous()", Language::Python);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_inline_ignore_unrelated_comment() {
+        let result = parse_inline_ignore(
+            "x = foo()  # this is not a foxguard directive",
+            Language::Python,
+        );
+        assert!(result.is_none());
+    }
+
+    // ── inline_ignore_directives tests ─────────────────────────────────
+
+    #[test]
+    fn directives_same_line_suppresses_that_line() {
+        let source = "x = dangerous()  # foxguard: ignore\n";
+        let directives = inline_ignore_directives(source, Language::Python);
+        assert!(directives.contains_key(&1));
+        assert!(directives.get(&1).unwrap().matches("any-rule"));
+    }
+
+    #[test]
+    fn directives_line_above_suppresses_next_code_line() {
+        let source = "# foxguard: ignore\nx = dangerous()\n";
+        let directives = inline_ignore_directives(source, Language::Python);
+        assert!(directives.contains_key(&2));
+        assert!(!directives.contains_key(&1));
+    }
+
+    #[test]
+    fn directives_line_above_with_blank_lines_skips_blanks() {
+        let source = "# foxguard: ignore\n\n# another comment\nx = dangerous()\n";
+        let directives = inline_ignore_directives(source, Language::Python);
+        assert!(directives.contains_key(&4));
+    }
+
+    #[test]
+    fn directives_separated_by_distant_code_does_not_suppress() {
+        let source = "# foxguard: ignore\n\nx = safe()\ny = also_safe()\nz = dangerous()\n";
+        let directives = inline_ignore_directives(source, Language::Python);
+        // Targets line 3 only (x = safe()), not line 5
+        assert!(directives.contains_key(&3));
+        assert!(!directives.contains_key(&5));
+    }
+
+    #[test]
+    fn directives_specific_rule_only_matches_that_rule() {
+        let source = "x = foo()  # foxguard: ignore[sql-injection]\n";
+        let directives = inline_ignore_directives(source, Language::Python);
+        let spec = directives.get(&1).unwrap();
+        assert!(spec.matches("sql-injection"));
+        assert!(!spec.matches("xss"));
+    }
+
+    #[test]
+    fn directives_multiple_ignores_in_same_file() {
+        let source = concat!(
+            "x = foo()  # foxguard: ignore[sql-injection]\n",
+            "y = bar()\n",
+            "# foxguard: ignore\n",
+            "z = baz()\n",
+        );
+        let directives = inline_ignore_directives(source, Language::Python);
+        // Line 1: specific rule ignore
+        assert!(directives.get(&1).unwrap().matches("sql-injection"));
+        assert!(!directives.get(&1).unwrap().matches("xss"));
+        // Line 4: blanket ignore (from standalone directive on line 3)
+        assert!(directives.get(&4).unwrap().matches("any-rule"));
+    }
+
+    #[test]
+    fn directives_ignore_at_end_of_file_same_line() {
+        let source = "x = dangerous()  # foxguard: ignore";
+        let directives = inline_ignore_directives(source, Language::Python);
+        assert!(directives.contains_key(&1));
+    }
+
+    #[test]
+    fn directives_standalone_ignore_at_eof_no_following_code() {
+        let source = "x = safe()\n# foxguard: ignore\n";
+        let directives = inline_ignore_directives(source, Language::Python);
+        assert!(directives.is_empty());
+    }
+
+    // ── apply_inline_ignores tests ─────────────────────────────────────
+
+    #[test]
+    fn apply_ignores_suppresses_matching_finding() {
+        let mut directives = HashMap::new();
+        directives.insert(
+            5,
+            InlineIgnoreSpec {
+                all_rules: true,
+                rule_ids: HashSet::new(),
+            },
+        );
+        let findings = vec![make_finding("xss", 5)];
+        let result = apply_inline_ignores(findings, &directives);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn apply_ignores_keeps_non_matching_finding() {
+        let mut directives = HashMap::new();
+        directives.insert(
+            10,
+            InlineIgnoreSpec {
+                all_rules: true,
+                rule_ids: HashSet::new(),
+            },
+        );
+        let findings = vec![make_finding("xss", 5)];
+        let result = apply_inline_ignores(findings, &directives);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn apply_ignores_specific_rule_suppresses_only_matching() {
+        let mut rule_ids = HashSet::new();
+        rule_ids.insert("sql-injection".to_string());
+        let mut directives = HashMap::new();
+        directives.insert(
+            5,
+            InlineIgnoreSpec {
+                all_rules: false,
+                rule_ids,
+            },
+        );
+        let findings = vec![make_finding("sql-injection", 5), make_finding("xss", 5)];
+        let result = apply_inline_ignores(findings, &directives);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].rule_id, "xss");
+    }
+
+    #[test]
+    fn apply_ignores_multiline_finding() {
+        let mut directives = HashMap::new();
+        directives.insert(
+            6,
+            InlineIgnoreSpec {
+                all_rules: true,
+                rule_ids: HashSet::new(),
+            },
+        );
+        let mut finding = make_finding("xss", 5);
+        finding.end_line = 7;
+        let result = apply_inline_ignores(vec![finding], &directives);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn apply_ignores_empty_directives_keeps_all() {
+        let directives = HashMap::new();
+        let findings = vec![make_finding("xss", 1), make_finding("sqli", 2)];
+        let result = apply_inline_ignores(findings, &directives);
+        assert_eq!(result.len(), 2);
+    }
+
+    // ── Integration: block comment in JavaScript ───────────────────────
+
+    #[test]
+    fn block_comment_ignore_in_js() {
+        let source = "let x = eval(s); /* foxguard: ignore */\nlet y = eval(t);\n";
+        let directives = inline_ignore_directives(source, Language::JavaScript);
+        assert!(directives.contains_key(&1));
+        assert!(!directives.contains_key(&2));
+    }
+
+    #[test]
+    fn block_comment_standalone_targets_next_line() {
+        let source = "/* foxguard: ignore */\nlet x = eval(s);\n";
+        let directives = inline_ignore_directives(source, Language::JavaScript);
+        assert!(directives.contains_key(&2));
+        assert!(!directives.contains_key(&1));
+    }
+}
