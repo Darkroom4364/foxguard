@@ -1,6 +1,7 @@
 use crate::Finding;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,15 +45,13 @@ pub fn fingerprint_finding(finding: &Finding) -> String {
     hasher.update([0]);
     hasher.update(finding.file.as_bytes());
     hasher.update([0]);
-    hasher.update(finding.line.to_string().as_bytes());
-    hasher.update([0]);
-    hasher.update(finding.column.to_string().as_bytes());
-    hasher.update([0]);
-    hasher.update(finding.end_line.to_string().as_bytes());
-    hasher.update([0]);
-    hasher.update(finding.end_column.to_string().as_bytes());
-    hasher.update([0]);
-    hasher.update(finding.description.as_bytes());
+    // Use snippet for content-based identity; fall back to description if empty
+    let content = if finding.snippet.is_empty() {
+        &finding.description
+    } else {
+        &finding.snippet
+    };
+    hasher.update(content.as_bytes());
     let digest = hasher.finalize();
     digest.iter().map(|b| format!("{:02x}", b)).collect()
 }
@@ -95,14 +94,17 @@ pub fn suppress_with_baseline(
         return findings;
     };
 
+    let suppressed: HashSet<&str> = baseline
+        .entries
+        .iter()
+        .map(|entry| entry.fingerprint.as_str())
+        .collect();
+
     findings
         .into_iter()
         .filter(|finding| {
             let fingerprint = fingerprint_finding(finding);
-            !baseline
-                .entries
-                .iter()
-                .any(|entry| entry.fingerprint == fingerprint)
+            !suppressed.contains(fingerprint.as_str())
         })
         .collect()
 }
