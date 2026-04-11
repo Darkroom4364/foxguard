@@ -604,3 +604,98 @@ impl Rule for NoWeakCrypto {
         findings
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::parser::parse_file;
+
+    fn parse_ruby(src: &str) -> tree_sitter::Tree {
+        parse_file(src, Language::Ruby).expect("parse failed")
+    }
+
+    #[test]
+    fn eval_true_positive() {
+        let src = r#"eval(user_input)"#;
+        let tree = parse_ruby(src);
+        let findings = NoEval.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect eval()");
+        assert_eq!(findings[0].rule_id, "rb/no-eval");
+    }
+
+    #[test]
+    fn eval_true_negative() {
+        let src = r#"puts "hello world""#;
+        let tree = parse_ruby(src);
+        let findings = NoEval.check(src, &tree);
+        assert!(findings.is_empty(), "puts should not trigger eval rule");
+    }
+
+    #[test]
+    fn command_injection_system_true_positive() {
+        let src = r#"system(cmd)"#;
+        let tree = parse_ruby(src);
+        let findings = NoCommandInjection.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect system()");
+        assert_eq!(findings[0].rule_id, "rb/no-command-injection");
+    }
+
+    #[test]
+    fn command_injection_true_negative() {
+        let src = r#"arr.length"#;
+        let tree = parse_ruby(src);
+        let findings = NoCommandInjection.check(src, &tree);
+        assert!(findings.is_empty(), "safe code should not trigger");
+    }
+
+    #[test]
+    fn hardcoded_secret_true_positive() {
+        let src = r#"password = "hunter2abc""#;
+        let tree = parse_ruby(src);
+        let findings = NoHardcodedSecret.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect hardcoded password");
+    }
+
+    #[test]
+    fn hardcoded_secret_true_negative() {
+        let src = r#"name = "Alice""#;
+        let tree = parse_ruby(src);
+        let findings = NoHardcodedSecret.check(src, &tree);
+        assert!(
+            findings.is_empty(),
+            "non-secret variable should not trigger"
+        );
+    }
+
+    #[test]
+    fn unsafe_deserialization_true_positive() {
+        let src = r#"Marshal.load(data)"#;
+        let tree = parse_ruby(src);
+        let findings = NoUnsafeDeserialization.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect Marshal.load");
+    }
+
+    #[test]
+    fn unsafe_deserialization_true_negative() {
+        let src = r#"YAML.safe_load(data)"#;
+        let tree = parse_ruby(src);
+        let findings = NoUnsafeDeserialization.check(src, &tree);
+        assert!(findings.is_empty(), "YAML.safe_load should not trigger");
+    }
+
+    #[test]
+    fn weak_crypto_true_positive() {
+        let src = r#"Digest::MD5.hexdigest(data)"#;
+        let tree = parse_ruby(src);
+        let findings = NoWeakCrypto.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect Digest::MD5");
+    }
+
+    #[test]
+    fn weak_crypto_true_negative() {
+        let src = r#"Digest::SHA256.hexdigest(data)"#;
+        let tree = parse_ruby(src);
+        let findings = NoWeakCrypto.check(src, &tree);
+        assert!(findings.is_empty(), "SHA256 should not trigger");
+    }
+}

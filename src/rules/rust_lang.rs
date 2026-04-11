@@ -566,3 +566,189 @@ impl Rule for NoUnwrapInLib {
         findings
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::parser::parse_file;
+
+    fn parse_rust(src: &str) -> tree_sitter::Tree {
+        parse_file(src, Language::Rust).expect("parse failed")
+    }
+
+    // ─── Unsafe Block ──────────────────────────────────────────────────────
+
+    #[test]
+    fn unsafe_block_true_positive() {
+        let src = r#"
+fn main() {
+    unsafe {
+        let ptr = std::ptr::null::<u8>();
+    }
+}
+"#;
+        let tree = parse_rust(src);
+        let findings = UnsafeBlock.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect unsafe block");
+        assert_eq!(findings[0].rule_id, "rs/unsafe-block");
+    }
+
+    #[test]
+    fn unsafe_block_true_negative() {
+        let src = r#"
+fn main() {
+    let x = 42;
+}
+"#;
+        let tree = parse_rust(src);
+        let findings = UnsafeBlock.check(src, &tree);
+        assert!(findings.is_empty(), "safe code should not trigger");
+    }
+
+    // ─── Hardcoded Secret ──────────────────────────────────────────────────
+
+    #[test]
+    fn hardcoded_secret_true_positive() {
+        let src = r#"
+fn main() {
+    let password = "supersecret123";
+}
+"#;
+        let tree = parse_rust(src);
+        let findings = NoHardcodedSecret.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect hardcoded password");
+        assert_eq!(findings[0].rule_id, "rs/no-hardcoded-secret");
+    }
+
+    #[test]
+    fn hardcoded_secret_true_negative() {
+        let src = r#"
+fn main() {
+    let name = "alice";
+}
+"#;
+        let tree = parse_rust(src);
+        let findings = NoHardcodedSecret.check(src, &tree);
+        assert!(
+            findings.is_empty(),
+            "non-secret variable should not trigger"
+        );
+    }
+
+    // ─── Command Injection ─────────────────────────────────────────────────
+
+    #[test]
+    fn command_injection_true_positive() {
+        let src = r#"
+fn run(cmd: &str) {
+    Command::new(cmd);
+}
+"#;
+        let tree = parse_rust(src);
+        let findings = NoCommandInjection.check(src, &tree);
+        assert!(
+            !findings.is_empty(),
+            "should detect Command::new with dynamic arg"
+        );
+    }
+
+    #[test]
+    fn command_injection_true_negative() {
+        let src = r#"
+fn run() {
+    Command::new("ls");
+}
+"#;
+        let tree = parse_rust(src);
+        let findings = NoCommandInjection.check(src, &tree);
+        assert!(
+            findings.is_empty(),
+            "literal arg to Command::new should not trigger"
+        );
+    }
+
+    // ─── Transmute ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn transmute_true_positive() {
+        let src = r#"
+fn convert(x: u32) -> f32 {
+    unsafe { std::mem::transmute(x) }
+}
+"#;
+        let tree = parse_rust(src);
+        let findings = TransmuteUsage.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect transmute usage");
+    }
+
+    #[test]
+    fn transmute_true_negative() {
+        let src = r#"
+fn convert(x: u32) -> f32 {
+    x as f32
+}
+"#;
+        let tree = parse_rust(src);
+        let findings = TransmuteUsage.check(src, &tree);
+        assert!(findings.is_empty(), "safe cast should not trigger");
+    }
+
+    // ─── Unwrap ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn unwrap_true_positive() {
+        let src = r#"
+fn main() {
+    let val = some_result.unwrap();
+}
+"#;
+        let tree = parse_rust(src);
+        let findings = NoUnwrapInLib.check(src, &tree);
+        assert!(!findings.is_empty(), "should detect .unwrap()");
+    }
+
+    #[test]
+    fn unwrap_true_negative() {
+        let src = r#"
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let val = some_result?;
+    Ok(())
+}
+"#;
+        let tree = parse_rust(src);
+        let findings = NoUnwrapInLib.check(src, &tree);
+        assert!(findings.is_empty(), "? operator should not trigger");
+    }
+
+    // ─── TLS Verify Disabled ───────────────────────────────────────────────
+
+    #[test]
+    fn tls_verify_disabled_true_positive() {
+        let src = r#"
+fn client() {
+    reqwest::ClientBuilder::new().danger_accept_invalid_certs(true).build();
+}
+"#;
+        let tree = parse_rust(src);
+        let findings = TlsVerifyDisabled.check(src, &tree);
+        assert!(
+            !findings.is_empty(),
+            "should detect danger_accept_invalid_certs(true)"
+        );
+    }
+
+    #[test]
+    fn tls_verify_disabled_true_negative() {
+        let src = r#"
+fn client() {
+    reqwest::ClientBuilder::new().danger_accept_invalid_certs(false).build();
+}
+"#;
+        let tree = parse_rust(src);
+        let findings = TlsVerifyDisabled.check(src, &tree);
+        assert!(
+            findings.is_empty(),
+            "danger_accept_invalid_certs(false) should not trigger"
+        );
+    }
+}
