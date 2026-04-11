@@ -69,19 +69,11 @@ pub fn make_finding_from_offsets(
     let start_byte = start_byte.min(source.len());
     let end_byte = end_byte.min(source.len());
 
-    let line = source[..start_byte]
-        .bytes()
-        .filter(|b| *b == b'\n')
-        .count()
-        + 1;
+    let line = source[..start_byte].bytes().filter(|b| *b == b'\n').count() + 1;
     let line_start = source[..start_byte].rfind('\n').map_or(0, |idx| idx + 1);
     let column = source[line_start..start_byte].chars().count() + 1;
 
-    let end_line = source[..end_byte]
-        .bytes()
-        .filter(|b| *b == b'\n')
-        .count()
-        + 1;
+    let end_line = source[..end_byte].bytes().filter(|b| *b == b'\n').count() + 1;
     let end_line_start = source[..end_byte].rfind('\n').map_or(0, |idx| idx + 1);
     let end_column = source[end_line_start..end_byte].chars().count() + 1;
 
