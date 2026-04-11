@@ -156,9 +156,17 @@ fn is_minified(source: &str) -> bool {
 fn inline_ignore_regex() -> &'static Regex {
     static INLINE_IGNORE_REGEX: OnceLock<Regex> = OnceLock::new();
     INLINE_IGNORE_REGEX.get_or_init(|| {
-        Regex::new(r"^foxguard\s*:\s*ignore(?:\[(?P<rules>[^\]]*)\])?\s*$")
+        // Accept both "foxguard: ignore" and "foxguard-ignore" forms.
+        Regex::new(r"^foxguard(?:\s*:\s*|-\s*)ignore(?:\[(?P<rules>[^\]]*)\])?\s*$")
             .expect("invalid inline ignore regex")
     })
+}
+
+/// Regex to extract the content of a `/* ... */` block comment on a single line.
+fn block_comment_regex() -> &'static Regex {
+    static BLOCK_COMMENT_REGEX: OnceLock<Regex> = OnceLock::new();
+    BLOCK_COMMENT_REGEX
+        .get_or_init(|| Regex::new(r"/\*(?P<inner>.*?)\*/").expect("invalid block comment regex"))
 }
 
 fn inline_ignore_directives(source: &str, language: Language) -> HashMap<usize, InlineIgnoreSpec> {
@@ -206,34 +214,52 @@ fn parse_inline_ignore(line: &str, language: Language) -> Option<(bool, InlineIg
 
     markers.sort_by_key(|(index, _)| *index);
 
-    for (index, marker) in markers {
+    for (index, marker) in &markers {
         let comment_text = line[index + marker.len()..].trim();
         let Some(captures) = inline_ignore_regex().captures(comment_text) else {
             continue;
         };
 
-        let mut spec = InlineIgnoreSpec::default();
-        match captures.name("rules").map(|rules| rules.as_str().trim()) {
-            None | Some("") => spec.all_rules = true,
-            Some(rules) => {
-                for rule_id in rules
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|rule| !rule.is_empty())
-                {
-                    spec.rule_ids.insert(rule_id.to_string());
-                }
-                if spec.rule_ids.is_empty() {
-                    spec.all_rules = true;
-                }
-            }
-        }
+        let spec = build_ignore_spec(&captures);
+        let comment_only = line[..*index].trim().is_empty();
+        return Some((comment_only, spec));
+    }
 
-        let comment_only = line[..index].trim().is_empty();
+    // Also check for block comments: /* foxguard: ignore */ or /* foxguard-ignore */
+    for cap in block_comment_regex().captures_iter(line) {
+        let inner = cap.name("inner").map(|m| m.as_str().trim()).unwrap_or("");
+        let Some(captures) = inline_ignore_regex().captures(inner) else {
+            continue;
+        };
+
+        let spec = build_ignore_spec(&captures);
+        let block_start = cap.get(0).unwrap().start();
+        let comment_only = line[..block_start].trim().is_empty();
         return Some((comment_only, spec));
     }
 
     None
+}
+
+/// Build an `InlineIgnoreSpec` from regex captures.
+fn build_ignore_spec(captures: &regex::Captures<'_>) -> InlineIgnoreSpec {
+    let mut spec = InlineIgnoreSpec::default();
+    match captures.name("rules").map(|rules| rules.as_str().trim()) {
+        None | Some("") => spec.all_rules = true,
+        Some(rules) => {
+            for rule_id in rules
+                .split(',')
+                .map(str::trim)
+                .filter(|rule| !rule.is_empty())
+            {
+                spec.rule_ids.insert(rule_id.to_string());
+            }
+            if spec.rule_ids.is_empty() {
+                spec.all_rules = true;
+            }
+        }
+    }
+    spec
 }
 
 fn next_code_line(lines: &[&str], line_number: usize, language: Language) -> Option<usize> {
