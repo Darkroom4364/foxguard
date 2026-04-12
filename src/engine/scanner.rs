@@ -152,6 +152,40 @@ fn inline_ignore_regex() -> &'static Regex {
     })
 }
 
+fn block_comment_ignore_regex() -> &'static Regex {
+    static BLOCK_IGNORE_REGEX: OnceLock<Regex> = OnceLock::new();
+    BLOCK_IGNORE_REGEX.get_or_init(|| {
+        Regex::new(r"/\*\s*foxguard[\s:-]*ignore(?:\[(?P<rules>[^\]]*)\])?\s*\*/")
+            .expect("invalid block comment ignore regex")
+    })
+}
+
+fn parse_block_comment_ignore(line: &str) -> Option<(bool, InlineIgnoreSpec)> {
+    let captures = block_comment_ignore_regex().captures(line)?;
+    let full_match = captures.get(0).unwrap();
+
+    let mut spec = InlineIgnoreSpec::default();
+    match captures.name("rules").map(|rules| rules.as_str().trim()) {
+        None | Some("") => spec.all_rules = true,
+        Some(rules) => {
+            for rule_id in rules
+                .split(',')
+                .map(str::trim)
+                .filter(|rule| !rule.is_empty())
+            {
+                spec.rule_ids.insert(rule_id.to_string());
+            }
+            if spec.rule_ids.is_empty() {
+                spec.all_rules = true;
+            }
+        }
+    }
+
+    let comment_only =
+        line[..full_match.start()].trim().is_empty() && line[full_match.end()..].trim().is_empty();
+    Some((comment_only, spec))
+}
+
 fn inline_ignore_directives(source: &str, language: Language) -> HashMap<usize, InlineIgnoreSpec> {
     let lines: Vec<&str> = source.lines().collect();
     let mut directives = HashMap::new();
@@ -222,6 +256,11 @@ fn parse_inline_ignore(line: &str, language: Language) -> Option<(bool, InlineIg
 
         let comment_only = line[..index].trim().is_empty();
         return Some((comment_only, spec));
+    }
+
+    // Fallback: block comment /* foxguard: ignore */ or /* foxguard-ignore */
+    if let Some(result) = parse_block_comment_ignore(line) {
+        return Some(result);
     }
 
     None
