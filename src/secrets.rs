@@ -272,18 +272,18 @@ mod tests {
 
     #[test]
     fn redact_match_mid_codepoint_start() {
-        // '🔑' is 4 bytes (indices 4..8 in "pass🔑key").
-        // start=5 (mid-emoji) snaps backward to 4 — emoji gets redacted, not leaked.
-        let line = "pass🔑key";
-        let result = redact_match(line, 5, 8);
+        // U+00E9 (e-acute) is 2 bytes. "pass\u{00e9}key" = pass + [c3 a9] + key.
+        // start=5 (mid-codepoint) snaps backward to 4 so the char gets redacted.
+        let line = "pass\u{00e9}key";
+        let result = redact_match(line, 5, 6);
         assert_eq!(result, "pass[REDACTED]key");
     }
 
     #[test]
     fn redact_match_mid_codepoint_end() {
-        // end=5 (mid-emoji) snaps forward to 8 — emoji gets redacted, not leaked.
-        let line = "🔑secret";
-        let result = redact_match(line, 0, 5);
-        assert_eq!(result, "[REDACTED]ecret");
+        // end=1 (mid-codepoint of leading 2-byte char) snaps forward to 2.
+        let line = "\u{00e9}secret";
+        let result = redact_match(line, 0, 1);
+        assert_eq!(result, "[REDACTED]secret");
     }
 }
