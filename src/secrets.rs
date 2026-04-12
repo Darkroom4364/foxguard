@@ -147,10 +147,18 @@ fn patterns() -> &'static [SecretPattern] {
 }
 
 fn redact_match(line: &str, start: usize, end: usize) -> String {
+    let mut s = start;
+    while s > 0 && !line.is_char_boundary(s) {
+        s -= 1;
+    }
+    let mut e = end;
+    while e < line.len() && !line.is_char_boundary(e) {
+        e += 1;
+    }
     let mut redacted = String::with_capacity(line.len());
-    redacted.push_str(&line[..start]);
+    redacted.push_str(&line[..s]);
     redacted.push_str("[REDACTED]");
-    redacted.push_str(&line[end..]);
+    redacted.push_str(&line[e..]);
     redacted
 }
 
