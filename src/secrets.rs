@@ -147,10 +147,20 @@ fn patterns() -> &'static [SecretPattern] {
 }
 
 fn redact_match(line: &str, start: usize, end: usize) -> String {
+    // Defensive: snap to nearest char boundary outward so partial codepoints
+    // are redacted, not leaked. (The regex crate guarantees valid boundaries.)
+    let mut s = start;
+    while s < line.len() && !line.is_char_boundary(s) {
+        s += 1;
+    }
+    let mut e = end;
+    while e < line.len() && !line.is_char_boundary(e) {
+        e += 1;
+    }
     let mut redacted = String::with_capacity(line.len());
-    redacted.push_str(&line[..start]);
+    redacted.push_str(&line[..s]);
     redacted.push_str("[REDACTED]");
-    redacted.push_str(&line[end..]);
+    redacted.push_str(&line[e..]);
     redacted
 }
 
@@ -254,4 +264,19 @@ fn read_scannable_text(path: &Path) -> Option<String> {
         return None;
     }
     Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redact_match_mid_codepoint_start() {
+        // '🔑' is 4 bytes (indices 4..8 in "pass🔑key").
+        // Simulate start falling at byte 5 (mid-codepoint) — should snap forward to 8.
+        let line = "pass🔑key";
+        let result = redact_match(line, 5, 8);
+        // start snaps forward past the emoji — the partial char is NOT leaked mid-redaction.
+        assert_eq!(result, "pass🔑[REDACTED]key");
+    }
 }
