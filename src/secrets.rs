@@ -150,8 +150,8 @@ fn redact_match(line: &str, start: usize, end: usize) -> String {
     // Defensive: snap to nearest char boundary outward so partial codepoints
     // are redacted, not leaked. (The regex crate guarantees valid boundaries.)
     let mut s = start;
-    while s < line.len() && !line.is_char_boundary(s) {
-        s += 1;
+    while s > 0 && !line.is_char_boundary(s) {
+        s -= 1;
     }
     let mut e = end;
     while e < line.len() && !line.is_char_boundary(e) {
@@ -273,10 +273,17 @@ mod tests {
     #[test]
     fn redact_match_mid_codepoint_start() {
         // '🔑' is 4 bytes (indices 4..8 in "pass🔑key").
-        // Simulate start falling at byte 5 (mid-codepoint) — should snap forward to 8.
+        // start=5 (mid-emoji) snaps backward to 4 — emoji gets redacted, not leaked.
         let line = "pass🔑key";
         let result = redact_match(line, 5, 8);
-        // start snaps forward past the emoji — the partial char is NOT leaked mid-redaction.
-        assert_eq!(result, "pass🔑[REDACTED]key");
+        assert_eq!(result, "pass[REDACTED]key");
+    }
+
+    #[test]
+    fn redact_match_mid_codepoint_end() {
+        // end=5 (mid-emoji) snaps forward to 8 — emoji gets redacted, not leaked.
+        let line = "🔑secret";
+        let result = redact_match(line, 0, 5);
+        assert_eq!(result, "[REDACTED]ecret");
     }
 }
