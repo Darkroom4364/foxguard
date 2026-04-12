@@ -258,9 +258,20 @@ fn parse_inline_ignore(line: &str, language: Language) -> Option<(bool, InlineIg
         return Some((comment_only, spec));
     }
 
-    // Fallback: block comment /* foxguard: ignore */ or /* foxguard-ignore */
-    if let Some(result) = parse_block_comment_ignore(line) {
-        return Some(result);
+    // Fallback: block comment /* foxguard: ignore */ — only for languages with /* */ syntax
+    if matches!(
+        language,
+        Language::JavaScript
+            | Language::Go
+            | Language::Java
+            | Language::Rust
+            | Language::CSharp
+            | Language::Swift
+            | Language::Php
+    ) {
+        if let Some(result) = parse_block_comment_ignore(line) {
+            return Some(result);
+        }
     }
 
     None
@@ -410,4 +421,52 @@ fn scan_root(path: &Path) -> &Path {
 
 fn relative_scan_path(scan_root: &Path, path: &Path) -> PathBuf {
     path.strip_prefix(scan_root).unwrap_or(path).to_path_buf()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_comment_ignore_js() {
+        let result = parse_inline_ignore("/* foxguard: ignore */", Language::JavaScript);
+        assert!(result.is_some());
+        let (comment_only, spec) = result.unwrap();
+        assert!(comment_only);
+        assert!(spec.all_rules);
+    }
+
+    #[test]
+    fn block_comment_ignore_go() {
+        let result = parse_inline_ignore("/* foxguard: ignore */", Language::Go);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn block_comment_ignore_java() {
+        let result = parse_inline_ignore("/* foxguard: ignore */", Language::Java);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn block_comment_ignore_not_python() {
+        let result = parse_inline_ignore("/* foxguard: ignore */", Language::Python);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn block_comment_ignore_not_ruby() {
+        let result = parse_inline_ignore("/* foxguard: ignore */", Language::Ruby);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn block_comment_ignore_with_rule_id() {
+        let result =
+            parse_inline_ignore("/* foxguard: ignore[js/no-eval] */", Language::JavaScript);
+        assert!(result.is_some());
+        let (_, spec) = result.unwrap();
+        assert!(!spec.all_rules);
+        assert!(spec.rule_ids.contains("js/no-eval"));
+    }
 }
