@@ -310,8 +310,8 @@ fn walk_body_for_summary(
         "call_expression" => {
             handle_call(node, ctx, state, findings);
         }
-        "return_statement" => {
-            if return_taint.is_none() {
+        "return_statement"
+            if return_taint.is_none() => {
                 let mut cursor = node.walk();
                 for child in node.named_children(&mut cursor) {
                     if let Some((desc, _line)) = expression_taint(child, ctx, state) {
@@ -320,7 +320,6 @@ fn walk_body_for_summary(
                     }
                 }
             }
-        }
         _ => {}
     }
 
@@ -1811,16 +1810,14 @@ fn is_sanitizer_call(
     let final_segment = resolved.rsplit('.').next().unwrap_or(&resolved);
     for matcher in &spec.sanitizers {
         match matcher {
-            NodeMatcher::Call { canonical, .. } => {
-                if callee_text == canonical.as_str() || resolved.as_ref() == canonical.as_str() {
+            NodeMatcher::Call { canonical, .. }
+                if (callee_text == canonical.as_str() || resolved.as_ref() == canonical.as_str()) => {
                     return true;
                 }
-            }
-            NodeMatcher::MethodName { method, .. } => {
-                if method == final_segment {
+            NodeMatcher::MethodName { method, .. }
+                if method == final_segment => {
                     return true;
                 }
-            }
             _ => {}
         }
     }

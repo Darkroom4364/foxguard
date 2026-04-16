@@ -577,8 +577,8 @@ fn walk_body_for_summary(
         "call_expression" => {
             handle_call(node, ctx, state, findings);
         }
-        "return_statement" => {
-            if return_taint.is_none() {
+        "return_statement"
+            if return_taint.is_none() => {
                 let mut cursor = node.walk();
                 for child in node.named_children(&mut cursor) {
                     // return statement children are expression_list(s).
@@ -598,7 +598,6 @@ fn walk_body_for_summary(
                     }
                 }
             }
-        }
         _ => {}
     }
 
@@ -811,7 +810,7 @@ fn apply_multi_assign_semantics(
             .iter()
             .map(|rhs| expression_taint(*rhs, ctx, state))
             .collect();
-        for (name, desc) in lhs_names.iter().zip(descs.into_iter()) {
+        for (name, desc) in lhs_names.iter().zip(descs) {
             match desc {
                 Some((d, line)) => state.taint((*name).to_string(), d, line),
                 None => state.clear(name),
