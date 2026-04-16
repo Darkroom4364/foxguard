@@ -596,7 +596,6 @@ fn walk_body_for_summary(
                     break;
                 }
             }
-        }
         _ => {}
     }
 
