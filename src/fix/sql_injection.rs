@@ -111,18 +111,23 @@ fn fix_python_fstring(
         return None;
     }
 
-    // Build the parameterized query string
-    let mut query = fstr_text.to_string();
-    // Remove the 'f' prefix
-    query = query[1..].to_string();
-
-    // Replace each {expr} with ?
-    for _param in &params {
-        // Find and replace {param} or {param:...} patterns
-        let start = query.find('{')?;
-        let end = query[start..].find('}')? + start;
-        query.replace_range(start..=end, "?");
+    // Build the parameterized query from AST children instead of naive string search.
+    let quote_char = if fstr_text.starts_with("f\"") {
+        '"'
+    } else {
+        '\''
+    };
+    let mut query = String::new();
+    query.push(quote_char);
+    let mut cursor2 = fstr_node.walk();
+    for child in fstr_node.children(&mut cursor2) {
+        match child.kind() {
+            "interpolation" => query.push('?'),
+            "string_content" => query.push_str(node_text(child, source)),
+            _ => {}
+        }
     }
+    query.push(quote_char);
 
     // Build the params tuple
     let params_str = if params.len() == 1 {
@@ -207,22 +212,22 @@ fn fix_js_template(
         return None;
     }
 
-    // Build parameterized query — replace ${expr} with $1, $2, etc.
-    let tmpl_text = node_text(template_node, source);
-    let mut query = tmpl_text.to_string();
+    // Build parameterized query from AST children instead of naive string search.
+    let mut query = String::new();
+    query.push('"');
     let mut param_idx = 1;
-
-    // Replace each ${...} with $N
-    while let Some(start) = query.find("${") {
-        let end = query[start..].find('}')? + start;
-        query.replace_range(start..=end, &format!("${}", param_idx));
-        param_idx += 1;
+    let mut cursor2 = template_node.walk();
+    for child in template_node.children(&mut cursor2) {
+        match child.kind() {
+            "template_substitution" => {
+                query.push_str(&format!("${}", param_idx));
+                param_idx += 1;
+            }
+            "string_fragment" => query.push_str(node_text(child, source)),
+            _ => {}
+        }
     }
-
-    // Convert backticks to double quotes
-    if query.starts_with('`') && query.ends_with('`') {
-        query = format!("\"{}\"", &query[1..query.len() - 1]);
-    }
+    query.push('"');
 
     let func_text = call_func_text(call_node, source)?;
     let replacement = format!("{}({}, [{}])", func_text, query, params.join(", "));

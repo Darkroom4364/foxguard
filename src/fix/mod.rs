@@ -200,7 +200,7 @@ fn find_next_match(
     start_j: usize,
 ) -> Option<(usize, usize)> {
     // Look for the next line that matches in both sequences
-    let window = 10;
+    let window = 50;
     for di in 0..window.min(orig.len() - start_i) {
         for dj in 0..window.min(modified.len() - start_j) {
             if di == 0 && dj == 0 {
