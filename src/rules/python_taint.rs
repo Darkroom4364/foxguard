@@ -1252,9 +1252,7 @@ fn expression_taint(
                     resolve_cross_file_callee(func, callee_text, ctx.source, cross_file)
                 {
                     if let Some(file_summaries) = cross_file.summaries.get(&file_path) {
-                        if let Some(summary) =
-                            file_summaries.iter().find(|s| s.name == func_name)
-                        {
+                        if let Some(summary) = file_summaries.iter().find(|s| s.name == func_name) {
                             if let Some(args) = expr.child_by_field_name("arguments") {
                                 let mut cursor = args.walk();
                                 let arg_nodes: Vec<Node<'_>> =
@@ -1265,9 +1263,7 @@ fn expression_taint(
                                             expression_taint(arg_nodes[param_idx], ctx, state)
                                         {
                                             return Some((
-                                                format!(
-                                                    "{desc} (via cross-file {func_name})"
-                                                ),
+                                                format!("{desc} (via cross-file {func_name})"),
                                                 src_line,
                                             ));
                                         }

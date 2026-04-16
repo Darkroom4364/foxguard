@@ -227,33 +227,21 @@ fn realistic_gin_service_multifile() {
 /// queries.run_query's SQL sink.
 #[test]
 fn realistic_django_chain_multihop() {
-    assert_fixture(
-        "django_chain",
-        2,
-        &[("py/taint-sql-injection", 1)],
-    );
+    assert_fixture("django_chain", 2, &[("py/taint-sql-injection", 1)]);
 }
 
 /// Multi-hop chain fixture (issue #175). Three-file JS chain:
 /// routes.js (source) → transform.js (passthrough) → services.js (sink).
 #[test]
 fn realistic_express_chain_multihop() {
-    assert_fixture(
-        "express_chain",
-        2,
-        &[("js/taint-sql-injection", 1)],
-    );
+    assert_fixture("express_chain", 2, &[("js/taint-sql-injection", 1)]);
 }
 
 /// Multi-hop chain fixture (issue #175). Three-file Go chain:
 /// handlers.go (source) → transform.go (passthrough) → store.go (sink).
 #[test]
 fn realistic_gin_chain_multihop() {
-    assert_fixture(
-        "gin_chain",
-        2,
-        &[("go/taint-sql-injection", 1)],
-    );
+    assert_fixture("gin_chain", 2, &[("go/taint-sql-injection", 1)]);
 }
 
 #[test]

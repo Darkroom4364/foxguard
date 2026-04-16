@@ -1157,16 +1157,10 @@ fn expression_taint(
                                     for &param_idx in &summary.params_to_return {
                                         if param_idx < arg_nodes.len() {
                                             if let Some((desc, src_line)) =
-                                                expression_taint(
-                                                    arg_nodes[param_idx],
-                                                    ctx,
-                                                    state,
-                                                )
+                                                expression_taint(arg_nodes[param_idx], ctx, state)
                                             {
                                                 return Some((
-                                                    format!(
-                                                        "{desc} (via cross-file {func_name})"
-                                                    ),
+                                                    format!("{desc} (via cross-file {func_name})"),
                                                     src_line,
                                                 ));
                                             }
