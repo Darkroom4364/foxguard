@@ -5,7 +5,6 @@ use crate::rules::go_taint::{
     self, go_aliases_from_tree, go_taint_sources, NodeMatcher as GoNodeMatcher,
     TaintSpec as GoTaintSpec,
 };
-use crate::rules::FileContext;
 use crate::{Finding, Language, Severity};
 use regex::Regex;
 
@@ -708,70 +707,6 @@ fn go_call_sink(canonical: &str) -> GoNodeMatcher {
     }
 }
 
-struct GoTaintRuleMeta<'a> {
-    rule_id: &'a str,
-    severity: Severity,
-    cwe: Option<&'a str>,
-    fix_suggestion: Option<&'a str>,
-}
-
-fn map_go_taint_findings(
-    meta: &GoTaintRuleMeta<'_>,
-    source: &str,
-    tree: &tree_sitter::Tree,
-    ctx: &FileContext<'_>,
-    spec: &GoTaintSpec,
-    format_description: impl Fn(&str, &str) -> String,
-) -> Vec<Finding> {
-    // If the scanner never built a per-file Go alias table (e.g.
-    // rules are invoked without FileContext), fall back to building
-    // one locally so the rule still works.
-    let local_aliases: Option<AliasTable> = if ctx.go_aliases.is_none() {
-        Some(go_aliases_from_tree(source, tree))
-    } else {
-        None
-    };
-    let aliases: Option<&AliasTable> = ctx.go_aliases.or(local_aliases.as_ref());
-
-    // Build cross-file info if both summaries and same-package paths are available.
-    let cross_file_info = match (ctx.cross_file_summaries, ctx.go_same_package_paths.as_ref()) {
-        (Some(summaries), Some(paths)) => Some(go_taint::CrossFileInfo {
-            same_package_paths: paths,
-            summaries,
-            current_rule_id: meta.rule_id,
-        }),
-        _ => None,
-    };
-    let raw = go_taint::analyze_tree_with_cross_file(
-        tree.root_node(),
-        source,
-        spec,
-        aliases,
-        cross_file_info.as_ref(),
-    );
-    raw.into_iter()
-        .map(|t| Finding {
-            rule_id: meta.rule_id.to_string(),
-            severity: meta.severity,
-            cwe: meta.cwe.map(|s| s.to_string()),
-            description: format_description(&t.source_description, &t.sink_description),
-            file: String::new(),
-            line: t.sink_line,
-            column: t.sink_column,
-            end_line: t.sink_end_line,
-            end_column: t.sink_end_column,
-            snippet: get_source_line(source, t.sink_start_byte),
-            source_line: Some(t.source_line),
-            source_description: Some(t.source_description),
-            sink_line: Some(t.sink_line),
-            sink_description: Some(t.sink_description),
-            fix_suggestion: meta.fix_suggestion.map(|s| s.to_string()),
-            sink_start_byte: Some(t.sink_start_byte),
-            sink_end_byte: Some(t.sink_end_byte),
-        })
-        .collect()
-}
-
 // ─── Rule: taint-command-injection ─────────────────────────────────────────
 
 pub struct TaintCommandInjection;
@@ -789,6 +724,7 @@ impl TaintCommandInjection {
     }
 }
 
+// Individual taint rules are no-ops — GoBatchTaint handles all taint analysis.
 impl_rule! {
     TaintCommandInjection,
     id = "go/taint-command-injection",
@@ -796,22 +732,7 @@ impl_rule! {
     cwe = Some("CWE-78"),
     description = "Untrusted input reaches os/exec command execution sink",
     language = Language::Go,
-    fn check_with_context(_self, source, tree, ctx) {
-
-        let meta = GoTaintRuleMeta {
-            rule_id: _self.id(),
-            severity: _self.severity(),
-            cwe: _self.cwe(),
-            fix_suggestion: Some("Go has no standard shell-escape function. Pass arguments as separate elements to `exec.Command(name, arg1, arg2)` instead of building a shell string — this avoids shell interpretation entirely"),
-        };
-        map_go_taint_findings(&meta, source, tree, ctx, &Self::spec(), |src, sink| {
-            format!(
-                "{} reaches {} — untrusted input can inject OS commands",
-                src, sink
-            )
-        })
-
-    }
+    fn check(_self, _source, _tree) { Vec::new() }
 }
 
 // ─── Rule: taint-sql-injection ─────────────────────────────────────────────
@@ -869,19 +790,7 @@ impl_rule! {
     cwe = Some("CWE-89"),
     description = "Untrusted input reaches database Query/Exec sink",
     language = Language::Go,
-    fn check_with_context(_self, source, tree, ctx) {
-
-        let meta = GoTaintRuleMeta {
-            rule_id: _self.id(),
-            severity: _self.severity(),
-            cwe: _self.cwe(),
-            fix_suggestion: Some("Use parameterized queries: `db.Query(\"SELECT * FROM users WHERE name = $1\", name)`"),
-        };
-        map_go_taint_findings(&meta, source, tree, ctx, &Self::spec(), |src, sink| {
-            format!("{} reaches {} — untrusted input can inject SQL", src, sink)
-        })
-
-    }
+    fn check(_self, _source, _tree) { Vec::new() }
 }
 
 // ─── Rule: taint-ssti ─────────────────────────────────────────────────────
@@ -912,22 +821,7 @@ impl_rule! {
     cwe = Some("CWE-1336"),
     description = "Untrusted input reaches template parsing sink (potential SSTI)",
     language = Language::Go,
-    fn check_with_context(_self, source, tree, ctx) {
-
-        let meta = GoTaintRuleMeta {
-            rule_id: _self.id(),
-            severity: _self.severity(),
-            cwe: _self.cwe(),
-            fix_suggestion: Some("Use pre-defined template files with template.ParseFiles() instead of parsing user-controlled template strings"),
-        };
-        map_go_taint_findings(&meta, source, tree, ctx, &Self::spec(), |src, sink| {
-            format!(
-                "{} reaches {} — untrusted input can inject server-side templates",
-                src, sink
-            )
-        })
-
-    }
+    fn check(_self, _source, _tree) { Vec::new() }
 }
 
 // ─── Rule: taint-xpath-injection ──────────────────────────────────────────
@@ -957,24 +851,7 @@ impl_rule! {
     cwe = Some("CWE-643"),
     description = "Untrusted input reaches XPath query sink (potential XPath injection)",
     language = Language::Go,
-    fn check_with_context(_self, source, tree, ctx) {
-
-        let meta = GoTaintRuleMeta {
-            rule_id: _self.id(),
-            severity: _self.severity(),
-            cwe: _self.cwe(),
-            fix_suggestion: Some(
-                "Validate and sanitize user input before building XPath expressions",
-            ),
-        };
-        map_go_taint_findings(&meta, source, tree, ctx, &Self::spec(), |src, sink| {
-            format!(
-                "{} reaches {} — untrusted input can inject XPath queries",
-                src, sink
-            )
-        })
-
-    }
+    fn check(_self, _source, _tree) { Vec::new() }
 }
 
 // ─── Rule: taint-ldap-injection ───────────────────────────────────────────
@@ -1004,22 +881,7 @@ impl_rule! {
     cwe = Some("CWE-90"),
     description = "Untrusted input reaches LDAP search sink (potential LDAP injection)",
     language = Language::Go,
-    fn check_with_context(_self, source, tree, ctx) {
-
-        let meta = GoTaintRuleMeta {
-            rule_id: _self.id(),
-            severity: _self.severity(),
-            cwe: _self.cwe(),
-            fix_suggestion: Some("Use ldap.EscapeFilter() to sanitize user input before building LDAP filter strings"),
-        };
-        map_go_taint_findings(&meta, source, tree, ctx, &Self::spec(), |src, sink| {
-            format!(
-                "{} reaches {} — untrusted input can inject LDAP queries",
-                src, sink
-            )
-        })
-
-    }
+    fn check(_self, _source, _tree) { Vec::new() }
 }
 
 // ─── Rule: taint-ssrf ──────────────────────────────────────────────────────
@@ -1050,24 +912,7 @@ impl_rule! {
     cwe = Some("CWE-918"),
     description = "Untrusted input reaches outbound net/http sink (potential SSRF)",
     language = Language::Go,
-    fn check_with_context(_self, source, tree, ctx) {
-
-        let meta = GoTaintRuleMeta {
-            rule_id: _self.id(),
-            severity: _self.severity(),
-            cwe: _self.cwe(),
-            fix_suggestion: Some(
-                "Validate URLs against an allowlist of permitted hosts before making requests",
-            ),
-        };
-        map_go_taint_findings(&meta, source, tree, ctx, &Self::spec(), |src, sink| {
-            format!(
-                "{} reaches {} — untrusted input can drive server-side request forgery",
-                src, sink
-            )
-        })
-
-    }
+    fn check(_self, _source, _tree) { Vec::new() }
 }
 
 // ─── Rule: taint-log-injection ────────────────────────────────────────────
@@ -1097,24 +942,7 @@ impl_rule! {
     cwe = Some("CWE-117"),
     description = "Untrusted input reaches a logging sink — possible log injection",
     language = Language::Go,
-    fn check_with_context(_self, source, tree, ctx) {
-
-        let meta = GoTaintRuleMeta {
-            rule_id: _self.id(),
-            severity: _self.severity(),
-            cwe: _self.cwe(),
-            fix_suggestion: Some(
-                "Sanitize user input before logging — strip newlines and control characters",
-            ),
-        };
-        map_go_taint_findings(&meta, source, tree, ctx, &Self::spec(), |src, sink| {
-            format!(
-                "{} reaches {} — untrusted input can forge log entries",
-                src, sink
-            )
-        })
-
-    }
+    fn check(_self, _source, _tree) { Vec::new() }
 }
 
 // ─── Rule: taint-nosql-injection ────────────────────────────────────────
@@ -1177,24 +1005,7 @@ impl_rule! {
     cwe = Some("CWE-943"),
     description = "Untrusted input reaches a MongoDB query sink — possible NoSQL injection",
     language = Language::Go,
-    fn check_with_context(_self, source, tree, ctx) {
-
-        let meta = GoTaintRuleMeta {
-            rule_id: _self.id(),
-            severity: _self.severity(),
-            cwe: _self.cwe(),
-            fix_suggestion: Some(
-                "Validate and sanitize user input before building MongoDB queries.",
-            ),
-        };
-        map_go_taint_findings(&meta, source, tree, ctx, &Self::spec(), |src, sink| {
-            format!(
-                "{} reaches {} — untrusted input can inject NoSQL operators",
-                src, sink
-            )
-        })
-
-    }
+    fn check(_self, _source, _tree) { Vec::new() }
 }
 
 // ─── Rule: taint-path-traversal ──────────────────────────────────────────
@@ -1245,24 +1056,7 @@ impl_rule! {
     cwe = Some("CWE-22"),
     description = "Untrusted input reaches a filesystem path sink — possible path traversal",
     language = Language::Go,
-    fn check_with_context(_self, source, tree, ctx) {
-
-        let meta = GoTaintRuleMeta {
-            rule_id: _self.id(),
-            severity: _self.severity(),
-            cwe: _self.cwe(),
-            fix_suggestion: Some(
-                "Validate file paths with filepath.Clean() and ensure they don't escape the intended directory",
-            ),
-        };
-        map_go_taint_findings(&meta, source, tree, ctx, &Self::spec(), |src, sink| {
-            format!(
-                "{} reaches {} — untrusted input can traverse the filesystem",
-                src, sink
-            )
-        })
-
-    }
+    fn check(_self, _source, _tree) { Vec::new() }
 }
 
 /// All Go taint rule IDs paired with their specs.
@@ -1282,4 +1076,154 @@ pub fn go_taint_rule_specs() -> Vec<(&'static str, GoTaintSpec)> {
         ("go/taint-nosql-injection", TaintNosqlInjection::spec()),
         ("go/taint-path-traversal", TaintPathTraversal::spec()),
     ]
+}
+
+// ─── Batch taint rule ────────────────────────────────────────────────────
+
+/// Runs all Go taint rules in a batched pass for performance.
+/// Instead of 9 separate AST walks, groups rules by sanitizer set
+/// and shares pass-1 (return-taint summary) across all rules.
+pub struct GoBatchTaint;
+
+struct BatchRuleMeta {
+    rule_id: &'static str,
+    severity: Severity,
+    cwe: Option<&'static str>,
+    fix_suggestion: Option<&'static str>,
+    desc_verb: &'static str,
+}
+
+fn go_batch_rule_meta() -> Vec<BatchRuleMeta> {
+    vec![
+        BatchRuleMeta {
+            rule_id: "go/taint-command-injection",
+            severity: Severity::Critical,
+            cwe: Some("CWE-78"),
+            fix_suggestion: Some("Go has no standard shell-escape function. Pass arguments as separate elements to `exec.Command(name, arg1, arg2)` instead of building a shell string — this avoids shell interpretation entirely"),
+            desc_verb: "untrusted input can inject OS commands",
+        },
+        BatchRuleMeta {
+            rule_id: "go/taint-sql-injection",
+            severity: Severity::Critical,
+            cwe: Some("CWE-89"),
+            fix_suggestion: Some("Use parameterized queries: `db.Query(\"SELECT * FROM users WHERE name = $1\", name)`"),
+            desc_verb: "untrusted input can inject SQL",
+        },
+        BatchRuleMeta {
+            rule_id: "go/taint-ssti",
+            severity: Severity::Critical,
+            cwe: Some("CWE-1336"),
+            fix_suggestion: Some("Use pre-defined template files with template.ParseFiles() instead of parsing user-controlled template strings"),
+            desc_verb: "untrusted input can inject server-side templates",
+        },
+        BatchRuleMeta {
+            rule_id: "go/taint-xpath-injection",
+            severity: Severity::High,
+            cwe: Some("CWE-643"),
+            fix_suggestion: Some("Validate and sanitize user input before building XPath expressions"),
+            desc_verb: "untrusted input can inject XPath queries",
+        },
+        BatchRuleMeta {
+            rule_id: "go/taint-ldap-injection",
+            severity: Severity::High,
+            cwe: Some("CWE-90"),
+            fix_suggestion: Some("Use ldap.EscapeFilter() to sanitize user input before building LDAP filter strings"),
+            desc_verb: "untrusted input can inject LDAP queries",
+        },
+        BatchRuleMeta {
+            rule_id: "go/taint-ssrf",
+            severity: Severity::High,
+            cwe: Some("CWE-918"),
+            fix_suggestion: Some("Validate URLs against an allowlist of permitted hosts before making requests"),
+            desc_verb: "untrusted input can drive server-side request forgery",
+        },
+        BatchRuleMeta {
+            rule_id: "go/taint-log-injection",
+            severity: Severity::Medium,
+            cwe: Some("CWE-117"),
+            fix_suggestion: Some("Sanitize user input before logging — strip newlines and control characters"),
+            desc_verb: "untrusted input can forge log entries",
+        },
+        BatchRuleMeta {
+            rule_id: "go/taint-nosql-injection",
+            severity: Severity::High,
+            cwe: Some("CWE-943"),
+            fix_suggestion: Some("Validate and sanitize user input before building MongoDB queries."),
+            desc_verb: "untrusted input can inject NoSQL operators",
+        },
+        BatchRuleMeta {
+            rule_id: "go/taint-path-traversal",
+            severity: Severity::High,
+            cwe: Some("CWE-22"),
+            fix_suggestion: Some("Validate file paths with filepath.Clean() and ensure they don't escape the intended directory"),
+            desc_verb: "untrusted input can traverse the filesystem",
+        },
+    ]
+}
+
+impl_rule! {
+    GoBatchTaint,
+    id = "go/taint-batch",
+    severity = Severity::High,
+    cwe = None,
+    description = "Batched Go taint analysis",
+    language = Language::Go,
+    fn check_with_context(_self, source, tree, ctx) {
+        let local_aliases: Option<AliasTable> = if ctx.go_aliases.is_none() {
+            Some(go_aliases_from_tree(source, tree))
+        } else {
+            None
+        };
+        let aliases: Option<&AliasTable> = ctx.go_aliases.or(local_aliases.as_ref());
+
+        let owned_specs = go_taint_rule_specs();
+        let spec_refs: Vec<(&str, &GoTaintSpec)> = owned_specs
+            .iter()
+            .map(|(id, spec)| (*id, spec))
+            .collect();
+
+        let cross_sums = ctx.cross_file_summaries;
+        let pkg_paths = ctx.go_same_package_paths.as_deref();
+
+        let tagged = go_taint::analyze_tree_batch(
+            tree.root_node(),
+            source,
+            &spec_refs,
+            aliases,
+            cross_sums,
+            pkg_paths,
+        );
+
+        let meta_list = go_batch_rule_meta();
+        tagged
+            .into_iter()
+            .filter_map(|t| {
+                let meta = meta_list.iter().find(|m| m.rule_id == t.rule_id)?;
+                Some(Finding {
+                    rule_id: meta.rule_id.to_string(),
+                    severity: meta.severity,
+                    cwe: meta.cwe.map(|s| s.to_string()),
+                    description: format!(
+                        "{} reaches {} — {}",
+                        t.finding.source_description,
+                        t.finding.sink_description,
+                        meta.desc_verb
+                    ),
+                    file: String::new(),
+                    line: t.finding.sink_line,
+                    column: t.finding.sink_column,
+                    end_line: t.finding.sink_end_line,
+                    end_column: t.finding.sink_end_column,
+                    snippet: get_source_line(source, t.finding.sink_start_byte),
+                    source_line: Some(t.finding.source_line),
+                    source_description: Some(t.finding.source_description),
+                    sink_line: Some(t.finding.sink_line),
+                    sink_description: Some(t.finding.sink_description),
+                    fix_suggestion: meta.fix_suggestion.map(|s| s.to_string()),
+                    sink_start_byte: Some(t.finding.sink_start_byte),
+                    sink_end_byte: Some(t.finding.sink_end_byte),
+                })
+            })
+            .collect()
+    }
 }

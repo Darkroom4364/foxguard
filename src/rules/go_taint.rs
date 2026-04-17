@@ -131,6 +131,9 @@ pub struct TaintFinding {
     pub sink_description: String,
     /// 1-indexed line where the taint source was introduced.
     pub source_line: usize,
+    /// For cross-file findings in batch mode: the rule that owns this finding.
+    /// Empty for direct (non-cross-file) findings.
+    pub cross_file_rule_id: String,
 }
 
 /// Return-taint summary map keyed by a function / method simple name.
@@ -151,6 +154,166 @@ struct AnalysisContext<'a> {
     summaries: &'a ReturnSummary,
     /// Cross-file info for resolving same-package function calls.
     cross_file: Option<&'a CrossFileInfo<'a>>,
+}
+
+/// A `TaintFinding` tagged with the rule that produced it.
+#[derive(Debug, Clone)]
+pub struct TaggedTaintFinding {
+    pub rule_id: String,
+    pub finding: TaintFinding,
+}
+
+/// Analyze a file with multiple taint specs in batched passes.
+///
+/// Groups specs by sanitizer set: specs with no sanitizers share a single
+/// pass-2 walk (sinks from all rules checked simultaneously); specs with
+/// sanitizers get individual walks. Pass 1 (return-taint summary) runs once
+/// using shared sources.
+pub fn analyze_tree_batch<'a>(
+    root: Node<'_>,
+    source: &'a str,
+    specs: &[(&str, &TaintSpec)],
+    aliases: Option<&'a AliasTable>,
+    cross_file_summaries: Option<&'a CrossFileSummaryMap>,
+    same_package_paths: Option<&'a [PathBuf]>,
+) -> Vec<TaggedTaintFinding> {
+    if specs.is_empty() {
+        return Vec::new();
+    }
+
+    // All specs share sources — use the first spec's sources for pass 1.
+    let base_spec = TaintSpec {
+        sources: specs[0].1.sources.clone(),
+        sinks: vec![],
+        sanitizers: vec![],
+    };
+
+    // ── Pass 1: build return-taint summary (shared, runs once) ──────
+    let empty_summary = ReturnSummary::new();
+    let mut summaries = ReturnSummary::new();
+    let pass1_ctx = AnalysisContext {
+        source,
+        spec: &base_spec,
+        aliases,
+        summaries: &empty_summary,
+        cross_file: None,
+    };
+    collect_function_defs(root, &mut |func_node| {
+        let (name, ret_taint) = summarize_function(func_node, &pass1_ctx);
+        if let Some(name) = name {
+            summaries.insert(name, ret_taint);
+        }
+    });
+
+    // ── Pass 2: group specs by sanitizer set ────────────────────────
+    let mut no_sanitizer_specs: Vec<(&str, &TaintSpec)> = Vec::new();
+    let mut sanitizer_specs: Vec<(&str, &TaintSpec)> = Vec::new();
+    for &(rule_id, spec) in specs {
+        if spec.sanitizers.is_empty() {
+            no_sanitizer_specs.push((rule_id, spec));
+        } else {
+            sanitizer_specs.push((rule_id, spec));
+        }
+    }
+
+    let mut all_findings = Vec::new();
+
+    // Group A: no-sanitizer rules — merge all sinks, single walk.
+    if !no_sanitizer_specs.is_empty() {
+        // Build a merged spec with all sinks and a mapping to recover rule_id.
+        let mut merged_sinks: Vec<NodeMatcher> = Vec::new();
+        // Track (sink_index_start, sink_count, rule_id) for attribution.
+        let mut sink_ranges: Vec<(usize, usize, &str)> = Vec::new();
+        for &(rule_id, spec) in &no_sanitizer_specs {
+            let start = merged_sinks.len();
+            merged_sinks.extend(spec.sinks.iter().cloned());
+            sink_ranges.push((start, spec.sinks.len(), rule_id));
+        }
+
+        let merged_spec = TaintSpec {
+            sources: base_spec.sources.clone(),
+            sinks: merged_sinks,
+            sanitizers: vec![],
+        };
+
+        // Cross-file: use empty current_rule_id to accept all rules.
+        // The finding's cross_file_rule_id field carries the actual rule.
+        let cross_file_info = match (cross_file_summaries, same_package_paths) {
+            (Some(sums), Some(paths)) => Some(CrossFileInfo {
+                same_package_paths: paths,
+                summaries: sums,
+                current_rule_id: "", // wildcard — accept all rules
+            }),
+            _ => None,
+        };
+
+        let ctx = AnalysisContext {
+            source,
+            spec: &merged_spec,
+            aliases,
+            summaries: &summaries,
+            cross_file: cross_file_info.as_ref(),
+        };
+        let mut merged_findings = Vec::new();
+        collect_function_defs(root, &mut |func_node| {
+            analyze_function(func_node, &ctx, &mut merged_findings);
+        });
+
+        // Attribute each finding to the correct rule.
+        for finding in merged_findings {
+            // Cross-file findings carry the rule_id directly.
+            if !finding.cross_file_rule_id.is_empty() {
+                let rule_id = finding.cross_file_rule_id.clone();
+                all_findings.push(TaggedTaintFinding { rule_id, finding });
+                continue;
+            }
+            // Direct findings: match sink_description against each rule's sinks.
+            for &(start, count, rule_id) in &sink_ranges {
+                let rule_sinks = &merged_spec.sinks[start..start + count];
+                if rule_sinks
+                    .iter()
+                    .any(|s| s.description() == finding.sink_description)
+                {
+                    all_findings.push(TaggedTaintFinding {
+                        rule_id: rule_id.to_string(),
+                        finding: finding.clone(),
+                    });
+                    break;
+                }
+            }
+        }
+    }
+
+    // Group B: rules with sanitizers — individual walks (reuse pass 1 summaries).
+    for &(rule_id, spec) in &sanitizer_specs {
+        let cross_file_info = match (cross_file_summaries, same_package_paths) {
+            (Some(sums), Some(paths)) => Some(CrossFileInfo {
+                same_package_paths: paths,
+                summaries: sums,
+                current_rule_id: rule_id,
+            }),
+            _ => None,
+        };
+        let ctx = AnalysisContext {
+            source,
+            spec,
+            aliases,
+            summaries: &summaries,
+            cross_file: cross_file_info.as_ref(),
+        };
+        let mut findings = Vec::new();
+        collect_function_defs(root, &mut |func_node| {
+            analyze_function(func_node, &ctx, &mut findings);
+        });
+        for f in findings {
+            all_findings.push(TaggedTaintFinding {
+                rule_id: rule_id.to_string(),
+                finding: f,
+            });
+        }
+    }
+
+    all_findings
 }
 
 /// Run the taint engine over every function/method body inside `root`
@@ -913,6 +1076,7 @@ fn handle_call(
                     source_description: source_desc,
                     sink_description: sink_desc.clone(),
                     source_line: src_line,
+                    cross_file_rule_id: String::new(),
                 });
                 break;
             }
@@ -976,7 +1140,8 @@ fn handle_cross_file_call(
     // For each tainted argument, check if the corresponding parameter
     // has a ParamSinkFlow whose rule ID matches the current rule.
     for flow in &summary.params_to_sink {
-        if flow.sink_rule_id != cross_file.current_rule_id {
+        if !cross_file.current_rule_id.is_empty() && flow.sink_rule_id != cross_file.current_rule_id
+        {
             continue;
         }
         if flow.param_index >= arg_nodes.len() {
@@ -999,6 +1164,7 @@ fn handle_cross_file_call(
                     flow.sink_description, func_name
                 ),
                 source_line: src_line,
+                cross_file_rule_id: flow.sink_rule_id.clone(),
             });
             // One finding per cross-file call is enough.
             return;

@@ -123,7 +123,7 @@ fn main() {
             let mut rules: Vec<&dyn Rule> = all
                 .iter()
                 .map(|r| r.as_ref())
-                .filter(|r| r.language() == lang)
+                .filter(|r| r.language() == lang && !r.id().ends_with("-batch"))
                 .collect();
             rules.sort_by(|a, b| a.id().cmp(b.id()));
             (lang, rules)

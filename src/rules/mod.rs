@@ -274,6 +274,7 @@ impl RuleRegistry {
         registry.register(Box::new(go::InsecureTlsSkipVerify));
         registry.register(Box::new(go::GinNoTrustedProxies));
         registry.register(Box::new(go::NetHttpNoTimeout));
+        registry.register(Box::new(go::GoBatchTaint));
         registry.register(Box::new(go::TaintCommandInjection));
         registry.register(Box::new(go::TaintSqlInjection));
         registry.register(Box::new(go::TaintSsrf));
@@ -281,11 +282,11 @@ impl RuleRegistry {
         registry.register(Box::new(go::TaintXpathInjection));
         registry.register(Box::new(go::TaintLdapInjection));
         registry.register(Box::new(go::TaintLogInjection));
+        registry.register(Box::new(go::TaintNosqlInjection));
+        registry.register(Box::new(go::TaintPathTraversal));
         registry.register(Box::new(go::NoUnsafeDeserialization));
         registry.register(Box::new(go::JwtNoVerify));
         registry.register(Box::new(go::JwtHardcodedSecret));
-        registry.register(Box::new(go::TaintNosqlInjection));
-        registry.register(Box::new(go::TaintPathTraversal));
 
         // Register Java rules
         registry.register(Box::new(java::NoSqlInjection));
