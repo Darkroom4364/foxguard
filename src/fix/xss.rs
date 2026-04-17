@@ -24,10 +24,10 @@ pub fn fix_javascript(
                 return fix_assignment(source, current);
             }
             // Call: document.write(expr)
-            "call_expression" => {
-                if current.start_byte() <= sink_start && current.end_byte() >= sink_end {
-                    return fix_write_call(source, current);
-                }
+            "call_expression"
+                if current.start_byte() <= sink_start && current.end_byte() >= sink_end =>
+            {
+                return fix_write_call(source, current);
             }
             // Expression statement wrapping an assignment
             "expression_statement" => {

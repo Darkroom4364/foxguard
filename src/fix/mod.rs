@@ -47,7 +47,7 @@ fn generate_fix(
 
 /// Apply byte-range edits to source, processing in reverse order so offsets stay valid.
 pub fn apply_edits(source: &str, edits: &mut [CodeEdit]) -> String {
-    edits.sort_by(|a, b| b.start_byte.cmp(&a.start_byte));
+    edits.sort_by_key(|e| std::cmp::Reverse(e.start_byte));
 
     let mut result = source.to_string();
     let mut last_start = usize::MAX;
